@@ -1,0 +1,117 @@
+from flask import Flask, render_template_string, request
+import feedparser
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cloud Health Status Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1 { color: #2c3e50; }
+        .status-box { margin: 10px 0; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
+        input[type="date"] { padding: 5px; margin: 5px; }
+        .warning { color: orange; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Cloud Health Status Dashboard</h1>
+    <form method="get">
+        Start Date: <input type="date" name="start_date" value="{{ start_date }}">
+        End Date: <input type="date" name="end_date" value="{{ end_date }}">
+        <button type="submit">Filter</button>
+    </form>
+    <br>
+    {% for provider, entries in statuses.items() %}
+        <div class="status-box">
+            <strong>{{ provider }}</strong>:
+            {% if entries %}
+                <ul>
+                {% for entry in entries %}
+                    <li>{{ entry }}</li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p class="warning">⚠ No incidents in this period (note: provider only shows recent updates)</p>
+                Showing recent events:
+                <ul>
+                {% for entry in fallback_entries[provider] %}
+                    <li>{{ entry }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    {% endfor %}
+</body>
+</html>
+"""
+
+def parse_feed(url):
+    feed = feedparser.parse(url)
+    entries = []
+    for entry in feed.entries:
+        parsed_time = entry.get('published_parsed') or entry.get('updated_parsed')
+        if parsed_time:
+            entry_date = datetime(*parsed_time[:6])
+            entries.append({
+                'title': entry.title,
+                'date': entry_date,
+                'summary': entry.get('summary', '')
+            })
+    return entries
+
+def filter_entries(entries, start_date, end_date):
+    return [
+        f"{e['title']} ({e['date'].strftime('%Y-%m-%d %H:%M')})"
+        for e in entries
+        if start_date <= e['date'] <= end_date
+    ]
+
+@app.route('/')
+def index():
+    today = datetime.now().date()
+    default_start = (today - timedelta(days=7)).strftime('%Y-%m-%d')
+    default_end = today.strftime('%Y-%m-%d')
+
+    start_str = request.args.get('start_date', default_start)
+    end_str = request.args.get('end_date', default_end)
+
+    try:
+        start_date = datetime.strptime(start_str, '%Y-%m-%d')
+        end_date = datetime.strptime(end_str, '%Y-%m-%d') + timedelta(days=1) - timedelta(seconds=1)
+    except ValueError:
+        start_date = datetime(2000, 1, 1)
+        end_date = datetime.now()
+
+    sources = {
+        "AWS": "https://status.aws.amazon.com/rss/all.rss",
+        "GCP": "https://status.cloud.google.com/feed.atom",
+        "OCI": "https://ocistatus.oraclecloud.com/plannedEvents"
+    }
+
+    statuses = {}
+    fallback_entries = {}
+    for provider, url in sources.items():
+        entries = parse_feed(url)
+        filtered = filter_entries(entries, start_date, end_date)
+        statuses[provider] = filtered
+        fallback_entries[provider] = [
+            f"{e['title']} ({e['date'].strftime('%Y-%m-%d %H:%M')})" for e in entries[:5]
+        ]  # Show top 5 recent as fallback
+
+    statuses["Azure"] = ["Azure Service Health API (requires setup)"]
+    fallback_entries["Azure"] = []
+
+    return render_template_string(
+        HTML_TEMPLATE,
+        statuses=statuses,
+        fallback_entries=fallback_entries,
+        start_date=start_str,
+        end_date=end_str
+    )
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
