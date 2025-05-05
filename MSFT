@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ExpressRoute Architecture Diagram</title>
+  <style>
+    body { font-family: Arial, sans-serif; background-color: #f0f0f0; margin: 0; padding: 20px; }
+    svg { background-color: white; border: 2px solid #ccc; }
+    text { font-size: 14px; fill: #333; }
+    .box { stroke: #333; stroke-width: 2; fill: #e0f7fa; }
+    .line { stroke: #333; stroke-width: 2; }
+    .label { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>High-Resilience ExpressRoute Architecture for Two Landing Zones</h1>
+  <svg width="900" height="600">
+    <!-- Carteret Data Center -->
+    <rect x="50" y="50" width="200" height="100" class="box"/>
+    <text x="150" y="100" text-anchor="middle" class="label">Carteret Data Center</text>
+    <rect x="80" y="90" width="40" height="40" fill="#90caf9"/>
+    <text x="100" y="110" text-anchor="middle">Router 1</text>
+    <rect x="180" y="90" width="40" height="40" fill="#90caf9"/>
+    <text x="200" y="110" text-anchor="middle">Router 2</text>
+
+    <!-- ExpressRoute Peering Location (Equinix NY9) -->
+    <rect x="300" y="200" width="200" height="100" class="box"/>
+    <text x="400" y="250" text-anchor="middle" class="label">Equinix NY9 (Secaucus, NJ)</text>
+    <rect x="330" y="240" width="40" height="40" fill="#ffcc80"/>
+    <text x="350" y="260" text-anchor="middle">MSEE 1</text>
+    <rect x="430" y="240" width="40" height="40" fill="#ffcc80"/>
+    <text x="450" y="260" text-anchor="middle">MSEE 2</text>
+    <text x="400" y="290" text-anchor="middle">ExpressRoute Premium Direct (100 Gbps)</text>
+
+    <!-- Azure Region: East1 (East US) -->
+    <rect x="600" y="50" width="200" height="100" class="box"/>
+    <text x="700" y="100" text-anchor="middle" class="label">East1 (East US)</text>
+    <rect x="630" y="90" width="40" height="40" fill="#a5d6a7"/>
+    <text x="650" y="110" text-anchor="middle">VNet</text>
+    <rect x="730" y="90" width="40" height="40" fill="#a5d6a7"/>
+    <text x="750" y="110" text-anchor="middle">Gateway (Zone-Redundant)</text>
+
+    <!-- Azure Region: west2 (East US 2) -->
+    <rect x="600" y="350" width="200" height="100" class="box"/>
+    <text x="700" y="400" text-anchor="middle" class="label">East2 (East US 2)</text>
+    <rect x="630" y="390" width="40" height="40" fill="#a5d6a7"/>
+    <text x="650" y="410" text-anchor="middle">VNet</text>
+    <rect x="730" y="390" width="40" height="40" fill="#a5d6a7"/>
+    <text x="750" y="410" text-anchor="middle">Gateway (Zone-Redundant)</text>
+
+    <!-- Connections -->
+    <!-- Carteret to Equinix NY9 -->
+    <line x1="120" y1="130" x2="350" y2="200" class="line"/>
+    <line x1="200" y1="130" x2="450" y2="200" class="line"/>
+    <text x="250" y="170" text-anchor="middle">Dual Links</text>
+
+    <!-- Equinix NY9 to East1 -->
+    <line x1="400" y1="200" x2="650" y2="130" class="line"/>
+    <text x="525" y="160" text-anchor="middle">Private Peering</text>
+
+    <!-- Equinix NY9 to East2 -->
+    <line x1="400" y1="300" x2="650" y2="370" class="line"/>
+    <text x="525" y="340" text-anchor="middle">Private Peering</text>
+
+    <!-- East1 to East2 (VNet Peering) -->
+    <line x1="700" y1="150" x2="700" y2="350" class="line" stroke-dasharray="5,5"/>
+    <text x="750" y="250" text-anchor="middle">VNet Peering</text>
+
+    <!-- Annotations -->
+    <text x="450" y="500" text-anchor="middle">High Availability: Active-Active Configuration</text>
+    <text x="450" y="520" text-anchor="middle">ExpressRoute Global Reach for Cross-Region Traffic</text>
+    <text x="450" y="540" text-anchor="middle">Zone-Redundant Gateways in Each Region</text>
+  </svg>
+</body>
+</html>
