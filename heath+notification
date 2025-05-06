@@ -1,0 +1,101 @@
+from flask import Flask, render_template_string
+import feedparser
+from datetime import datetime
+from msal import ConfidentialClientApplication
+import requests
+
+app = Flask(__name__)
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Unified Cloud Health Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        h1 { color: #2c3e50; }
+        .provider { margin: 20px 0; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
+        .section { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Unified Cloud Health Dashboard</h1>
+    {% for provider, data in statuses.items() %}
+        <div class="provider">
+            <h2>{{ provider }}</h2>
+            <div class="section">
+                <strong>Health:</strong>
+                <ul>
+                {% for item in data['health'] %}
+                    <li>{{ item }}</li>
+                {% endfor %}
+                </ul>
+            </div>
+            <div class="section">
+                <strong>Maintenance:</strong>
+                <ul>
+                {% for item in data['maintenance'] %}
+                    <li>{{ item }}</li>
+                {% endfor %}
+                </ul>
+            </div>
+        </div>
+    {% endfor %}
+</body>
+</html>
+"""
+
+def parse_feed(url):
+    feed = feedparser.parse(url)
+    return [f"{entry.title} ({datetime(*entry.published_parsed[:6]).strftime('%Y-%m-%d %H:%M')})"
+            for entry in feed.entries]
+
+def get_azure_status(client_id, tenant_id, client_secret):
+    try:
+        authority = f"https://login.microsoftonline.com/{tenant_id}"
+        app = ConfidentialClientApplication(client_id, authority=authority, client_credential=client_secret)
+        token_response = app.acquire_token_for_client(scopes=["https://management.azure.com/.default"])
+        access_token = token_response['access_token']
+        headers = {'Authorization': f'Bearer {access_token}'}
+        health_url = "https://management.azure.com/providers/Microsoft.ResourceHealth/availabilityStatuses?api-version=2018-07-01"
+        resp = requests.get(health_url, headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            health = [res['properties']['summary'] for res in data.get('value', [])]
+            return health if health else ["All systems normal"], ["API integration for maintenance coming"]
+        else:
+            return ["Failed to fetch Azure health"], []
+    except Exception as e:
+        return [f"Azure API error: {e}"], []
+
+@app.route('/')
+def index():
+    # Replace these with your Azure credentials
+    AZURE_CLIENT_ID = "your-client-id"
+    AZURE_TENANT_ID = "your-tenant-id"
+    AZURE_CLIENT_SECRET = "your-client-secret"
+
+    statuses = {
+        "AWS": {
+            "health": parse_feed("https://status.aws.amazon.com/rss/all.rss"),
+            "maintenance": parse_feed("https://status.aws.amazon.com/rss/all.rss")  # AWS doesn't split feeds, so same feed
+        },
+        "GCP": {
+            "health": parse_feed("https://status.cloud.google.com/feed.atom"),
+            "maintenance": parse_feed("https://status.cloud.google.com/feed.atom")  # GCP doesn't split feeds, same feed
+        },
+        "OCI": {
+            "health": parse_feed("https://ocistatus.oraclecloud.com/plannedEvents"),
+            "maintenance": parse_feed("https://ocistatus.oraclecloud.com/plannedEvents")
+        },
+        "Azure": {}
+    }
+
+    azure_health, azure_maintenance = get_azure_status(AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
+    statuses["Azure"]["health"] = azure_health
+    statuses["Azure"]["maintenance"] = azure_maintenance
+
+    return render_template_string(HTML_TEMPLATE, statuses=statuses)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
