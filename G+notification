@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Status Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios@1.7.7/dist/axios.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+</head>
+<body>
+  <div id="root" class="min-h-screen bg-gray-100"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Component for individual cloud provider card
+    const CloudProviderCard = ({ name, status, incidents, maintenance }) => {
+      return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4">{name}</h2>
+          <p className="mb-2">
+            <span className="font-semibold">Status: </span>
+            <span className={status === 'Operational' ? 'text-green-600' : 'text-red-600'}>
+              {status}
+            </span>
+          </p>
+          <div className="mb-4">
+            <h3 className="font-semibold">Recent Incidents</h3>
+            {incidents.length > 0 ? (
+              <ul className="list-disc pl-5">
+                {incidents.map((incident, index) => (
+                  <li key={index}>{incident.title} - {incident.date}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No recent incidents</p>
+            )}
+          </div>
+          <div>
+            <h3 className="font-semibold">Scheduled Maintenance</h3>
+            {maintenance.length > 0 ? (
+              <ul className="list-disc pl-5">
+                {maintenance.map((event, index) => (
+                  <li key={index}>{event.title} - {event.date}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No scheduled maintenance</p>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // Main App component
+    const App = () => {
+      const [cloudData, setCloudData] = useState({
+        aws: { status: 'Loading', incidents: [], maintenance: [] },
+        gcp: { status: 'Loading', incidents: [], maintenance: [] },
+        oci: { status: 'Loading', incidents: [], maintenance: [] },
+        azure: { status: 'Loading', incidents: [], maintenance: [] },
+      });
+
+      useEffect(() => {
+        const fetchData = async () => {
+          try {
+            // AWS: Fetch from AWS Health API (requires authentication, using mock data for demo)
+            const awsData = {
+              status: 'Operational',
+              incidents: [
+                { title: 'S3 Latency Issue', date: '2025-05-01' },
+              ],
+              maintenance: [
+                { title: 'EC2 Scheduled Maintenance', date: '2025-05-10' },
+              ],
+            };
+
+            // GCP: Fetch from Google Cloud Status RSS
+            const gcpResponse = await axios.get('https://status.cloud.google.com/feed/atom');
+            const gcpIncidents = Array.from(new DOMParser()
+              .parseFromString(gcpResponse.data, 'text/xml')
+              .getElementsByTagName('entry'))
+              .slice(0, 3)
+              .map(entry => ({
+                title: entry.getElementsByTagName('title')[0].textContent,
+                date: new Date(entry.getElementsByTagName('updated')[0].textContent).toLocaleDateString(),
+              }));
+
+            // OCI: No public API, using mock data
+            const ociData = {
+              status: 'Operational',
+              incidents: [],
+              maintenance: [
+                { title: 'Database Maintenance', date: '2025-05-12' },
+              ],
+            };
+
+            // Azure: Fetch from Azure Status RSS
+            const azureResponse = await axios.get('https://status.azure.com/en-us/status/feed/');
+            const azureIncidents = Array.from(new DOMParser()
+              .parseFromString(azureResponse.data, 'text/xml')
+              .getElementsByTagName('item'))
+              .slice(0, 3)
+              .map(item => ({
+                title: item.getElementsByTagName('title')[0].textContent,
+                date: new Date(item.getElementsByTagName('pubDate')[0].textContent).toLocaleDateString(),
+              }));
+
+            setCloudData({
+              aws: awsData,
+              gcp: { status: gcpIncidents.length ? 'Issues Detected' : 'Operational', incidents: gcpIncidents, maintenance: [] },
+              oci: ociData,
+              azure: { status: azureIncidents.length ? 'Issues Detected' : 'Operational', incidents: azureIncidents, maintenance: [] },
+            });
+          } catch (error) {
+            console.error('Error fetching data:', error);
+            setCloudData({
+              aws: { status: 'Error', incidents: [], maintenance: [] },
+              gcp: { status: 'Error', incidents: [], maintenance: [] },
+              oci: { status: 'Error', incidents: [], maintenance: [] },
+              azure: { status: 'Error', incidents: [], maintenance: [] },
+            });
+          }
+        };
+
+        fetchData();
+      }, []);
+
+      return (
+        <div className="container mx-auto p-4">
+          <h1 className="text-3xl font-bold text-center mb-8">Cloud Status Dashboard</h1>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <CloudProviderCard name="AWS" {...cloudData.aws} />
+            <CloudProviderCard name="Google Cloud" {...cloudData.gcp} />
+            <CloudProviderCard name="Oracle Cloud" {...cloudData.oci} />
+            <CloudProviderCard name="Microsoft Azure" {...cloudData.azure} />
+          </div>
+        </div>
+      );
+    };
+
+    // Render the app
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
