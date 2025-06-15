@@ -1,0 +1,52 @@
+import boto3
+from tkinter import Tk
+from tkinter.messagebox import showinfo
+from tkcalendar import Calendar
+from datetime import datetime
+
+def fetch_events():
+    start = cal_start.get_date()
+    end = cal_end.get_date()
+    start_time = datetime.strptime(start, '%Y-%m-%d').strftime('%Y-%m-%dT00:00:00Z')
+    end_time = datetime.strptime(end, '%Y-%m-%d').strftime('%Y-%m-%dT23:59:59Z')
+
+    client = boto3.client('health', region_name='us-east-1')
+    try:
+        response = client.describe_events(
+            filter={
+                'services': ['directconnect'],
+                'startTimes': [{'from': start_time, 'to': end_time}]
+            }
+        )
+        events_info = "AWS Health Events (Direct Connect):\n"
+        for event in response['events']:
+            details = client.describe_event_details(eventArns=[event['arn']])
+            events_info += f"\nEvent ARN: {event['arn']}\n"
+            events_info += f"Service: {event['service']}\n"
+            events_info += f"Event Type Code: {event['eventTypeCode']}\n"
+            events_info += f"Start Time: {event['startTime']}\n"
+            for detail in details['successfulSet']:
+                events_info += f"Description: {detail['eventDescription']['latestDescription']}\n"
+            events_info += "---\n"
+        showinfo("AWS Health Events", events_info)
+    except Exception as e:
+        showinfo("Error", f"Error: {str(e)}")
+
+root = Tk()
+root.title("AWS Health Event Fetcher")
+
+# Start Date Calendar
+from tkinter import Label
+Label(root, text="Start Date").pack()
+cal_start = Calendar(root)
+cal_start.pack(pady=10)
+
+# End Date Calendar
+Label(root, text="End Date").pack()
+cal_end = Calendar(root)
+cal_end.pack(pady=10)
+
+from tkinter import Button
+Button(root, text="Fetch Events", command=fetch_events).pack(pady=20)
+
+root.mainloop()
