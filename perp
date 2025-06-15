@@ -1,0 +1,72 @@
+import boto3
+from azure.identity import DefaultAzureCredential
+from azure.mgmt.resourcehealth import ResourceHealthMgmtClient
+import datetime
+import feedparser
+
+# ----------------------------------------------------------------------------
+# AWS Configuration
+# ----------------------------------------------------------------------------
+def get_aws_events():
+    client = boto3.client('health', region_name='us-east-1')
+    start_time = datetime.datetime(2025, 6, 7)
+    end_time = datetime.datetime(2025, 6, 14)
+    start_str = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    end_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    print("\nAWS Health Events:")
+    health_events = client.describe_events(
+        filter={
+            'startTimes': [{'from': start_str, 'to': end_str}]
+        }
+    )
+    for event in health_events['events']:
+        print(f"Event: {event['eventTypeCode']} - {event['eventTypeCategory']} - {event['startTime']}")
+
+    print("\nAWS Maintenance Events:")
+    maint_events = client.describe_events(
+        filter={
+            'eventTypeCategories': ['scheduledChange'],
+            'startTimes': [{'from': start_str, 'to': end_str}]
+        }
+    )
+    for event in maint_events['events']:
+        print(f"Maintenance: {event['eventTypeCode']} - {event['startTime']}")
+
+# ----------------------------------------------------------------------------
+# Azure Configuration
+# ----------------------------------------------------------------------------
+def get_azure_events(subscription_id):
+    credential = DefaultAzureCredential()
+    client = ResourceHealthMgmtClient(credential, subscription_id)
+    print("\nAzure Service Health Events:")
+    events = client.availability_statuses.list_by_subscription_id(subscription_id=subscription_id)
+    for event in events:
+        print(f"Event: {event.name} - Status: {event.properties.availability_state}")
+
+# ----------------------------------------------------------------------------
+# GCP Configuration (via RSS feed)
+# ----------------------------------------------------------------------------
+def get_gcp_events():
+    url = "https://status.cloud.google.com/incidents.atom"
+    feed = feedparser.parse(url)
+    print("\nGCP Status Dashboard Incidents:")
+    for entry in feed.entries:
+        print(f"{entry.title} - {entry.link}")
+
+# ----------------------------------------------------------------------------
+# OCI Note
+# ----------------------------------------------------------------------------
+def oci_note():
+    print("\nOCI (Oracle Cloud Infrastructure) Note:")
+    print("No public API for service health/maintenance status. Check the OCI Service Health Dashboard manually.")
+
+# ----------------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------------
+if __name__ == "__main__":
+    print("=== Cloud Health & Maintenance Status ===")
+    get_aws_events()
+    get_azure_events("YOUR_AZURE_SUBSCRIPTION_ID")  # Replace with your subscription ID
+    get_gcp_events()
+    oci_note()
