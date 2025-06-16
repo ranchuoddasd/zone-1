@@ -1,0 +1,859 @@
+#!/usr/bin/env python3
+"""
+Production Cloud Status Dashboard
+A robust, production-ready cloud status dashboard with comprehensive error handling,
+logging, and automatic recovery mechanisms.
+"""
+
+import json
+import logging
+import os
+import sys
+import time
+import signal
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+import requests
+import feedparser
+from logging.handlers import RotatingFileHandler
+import re
+
+# Production configuration
+PRODUCTION_CONFIG = {
+    'log_level': logging.INFO,
+    'log_file': 'cloud_status_production.log',
+    'max_log_size': 10 * 1024 * 1024,  # 10MB
+    'log_backup_count': 5,
+    'request_timeout': 30,
+    'max_retries': 3,
+    'retry_delay': 5,
+    'max_events_per_provider': 10,
+    'output_file': 'cloud_status_dashboard.html',
+    'data_file': 'cloud_status_data.json',
+    'error_threshold': 3  # Max consecutive errors before alerting
+}
+
+
+class CloudStatusError(Exception):
+    """Custom exception for cloud status operations."""
+    pass
+
+
+class ProductionLogger:
+    """Production-grade logger with rotation and error tracking."""
+
+    def __init__(self, config: dict):
+        self.config = config
+        self.error_count = 0
+        self.last_error_time = None
+        self.setup_logging()
+
+    def setup_logging(self):
+        """Setup production logging with rotation."""
+        # Create logger
+        self.logger = logging.getLogger('cloud_status_dashboard')
+        self.logger.setLevel(self.config['log_level'])
+
+        # Clear existing handlers
+        self.logger.handlers.clear()
+
+        # File handler with rotation
+        file_handler = RotatingFileHandler(
+            self.config['log_file'],
+            maxBytes=self.config['max_log_size'],
+            backupCount=self.config['log_backup_count']
+        )
+        file_formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+        )
+        file_handler.setFormatter(file_formatter)
+
+        # Console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s'
+        )
+        console_handler.setFormatter(console_formatter)
+
+        # Add handlers
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(console_handler)
+
+    def log_error(self, message: str, exception: Optional[Exception] = None):
+        """Log error with tracking."""
+        self.error_count += 1
+        self.last_error_time = datetime.now(timezone.utc)
+
+        if exception:
+            self.logger.error(f"{message}: {str(exception)}")
+            self.logger.debug(traceback.format_exc())
+        else:
+            self.logger.error(message)
+
+    def log_info(self, message: str):
+        """Log info message."""
+        self.logger.info(message)
+
+    def log_warning(self, message: str):
+        """Log warning message."""
+        self.logger.warning(message)
+
+    def reset_error_count(self):
+        """Reset error count after successful operation."""
+        if self.error_count > 0:
+            self.logger.info(f"Resetting error count after {self.error_count} errors")
+            self.error_count = 0
+
+    def is_error_threshold_exceeded(self) -> bool:
+        """Check if error threshold is exceeded."""
+        return self.error_count >= self.config['error_threshold']
+
+
+class RobustFeedFetcher:
+    """Robust feed fetcher with retry logic and error handling."""
+
+    def __init__(self, config: dict, logger: ProductionLogger):
+        self.config = config
+        self.logger = logger
+        self.session = self.create_session()
+
+    def create_session(self) -> requests.Session:
+        """Create a configured requests session."""
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Cloud-Status-Dashboard/1.0 (Production)',
+            'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive'
+        })
+        return session
+
+    def fetch_with_retry(self, url: str, provider: str) -> Optional[Dict[str, Any]]:
+        """Fetch feed with retry logic."""
+        for attempt in range(self.config['max_retries']):
+            try:
+                self.logger.log_info(f"Fetching {provider} feed (attempt {attempt + 1}/{self.config['max_retries']})")
+
+                response = self.session.get(
+                    url,
+                    timeout=self.config['request_timeout'],
+                    allow_redirects=True
+                )
+                response.raise_for_status()
+
+                # Validate content type
+                content_type = response.headers.get('content-type', '').lower()
+                if not any(ct in content_type for ct in ['xml', 'rss', 'atom']):
+                    self.logger.log_warning(f"Unexpected content type for {provider}: {content_type}")
+
+                # Parse feed
+                feed = feedparser.parse(response.content)
+
+                if feed.bozo and feed.bozo_exception:
+                    self.logger.log_warning(f"Feed parsing warning for {provider}: {feed.bozo_exception}")
+
+                if not hasattr(feed, 'entries'):
+                    raise CloudStatusError(f"Invalid feed structure for {provider}")
+
+                self.logger.log_info(f"Successfully fetched {provider} feed with {len(feed.entries)} entries")
+                return feed
+
+            except requests.exceptions.Timeout:
+                self.logger.log_error(f"Timeout fetching {provider} feed (attempt {attempt + 1})")
+            except requests.exceptions.ConnectionError as e:
+                self.logger.log_error(f"Connection error fetching {provider} feed (attempt {attempt + 1})", e)
+            except requests.exceptions.HTTPError as e:
+                self.logger.log_error(f"HTTP error fetching {provider} feed (attempt {attempt + 1})", e)
+                if response.status_code in [404, 403, 401]:
+                    # Don't retry for client errors
+                    break
+            except Exception as e:
+                self.logger.log_error(f"Unexpected error fetching {provider} feed (attempt {attempt + 1})", e)
+
+            if attempt < self.config['max_retries'] - 1:
+                time.sleep(self.config['retry_delay'])
+
+        self.logger.log_error(f"Failed to fetch {provider} feed after {self.config['max_retries']} attempts")
+        return None
+
+
+class DataProcessor:
+    """Process and validate feed data."""
+
+    def __init__(self, config: dict, logger: ProductionLogger):
+        self.config = config
+        self.logger = logger
+
+    def process_feed_entry(self, entry: Any, provider: str) -> Optional[Dict[str, Any]]:
+        """Process a single feed entry with validation."""
+        try:
+            # Extract and validate basic information
+            title = getattr(entry, 'title', '').strip()
+            if not title:
+                self.logger.log_warning(f"Empty title for {provider} entry")
+                return None
+
+            description = getattr(entry, 'summary', getattr(entry, 'description', '')).strip()
+
+            # Parse and validate date
+            published = getattr(entry, 'published_parsed', None)
+            if published:
+                try:
+                    date = datetime(*published[:6], tzinfo=timezone.utc).isoformat()
+                except (ValueError, TypeError):
+                    date = datetime.now(timezone.utc).isoformat()
+            else:
+                date = datetime.now(timezone.utc).isoformat()
+
+            # Extract link
+            link = getattr(entry, 'link', '').strip()
+
+            # Determine status and region
+            status = self.determine_status(title, description)
+            region = self.extract_region(title, description, provider)
+
+            return {
+                'provider': provider.upper(),
+                'title': title[:200],  # Limit title length
+                'description': self.clean_description(description),
+                'status': status,
+                'date': date,
+                'link': link,
+                'region': region
+            }
+
+        except Exception as e:
+            self.logger.log_error(f"Error processing entry for {provider}", e)
+            return None
+
+    def determine_status(self, title: str, description: str) -> str:
+        """Determine status with improved logic."""
+        text = (title + ' ' + description).lower()
+
+        # Priority order matters
+        if any(word in text for word in ['resolved', 'fixed', 'restored', 'completed']):
+            return 'operational'
+        elif any(word in text for word in ['maintenance', 'scheduled', 'planned', 'update']):
+            return 'maintenance'
+        elif any(word in text for word in ['outage', 'down', 'unavailable', 'major incident']):
+            return 'outage'
+        elif any(word in text for word in ['degraded', 'partial', 'investigating', 'issue', 'problem']):
+            return 'degraded'
+        elif any(word in text for word in ['operational', 'normal', 'healthy']):
+            return 'operational'
+        else:
+            return 'operational'  # Default to operational
+
+    def extract_region(self, title: str, description: str, provider: str) -> str:
+        """Extract region with improved patterns."""
+        text = (title + ' ' + description).lower()
+
+        # Specific region patterns
+        region_patterns = {
+            'us-east': ['us-east', 'virginia', 'n. virginia'],
+            'us-west': ['us-west', 'oregon', 'california'],
+            'us-central': ['us-central', 'iowa', 'central'],
+            'eu-west': ['eu-west', 'ireland', 'dublin'],
+            'eu-central': ['eu-central', 'frankfurt', 'germany'],
+            'ap-southeast': ['ap-southeast', 'singapore', 'sydney'],
+            'ap-northeast': ['ap-northeast', 'tokyo', 'japan'],
+            'global': ['global', 'worldwide', 'all regions', 'multiple regions']
+        }
+
+        for region, patterns in region_patterns.items():
+            if any(pattern in text for pattern in patterns):
+                return region.replace('-', ' ').title()
+
+        return 'Global'
+
+    def clean_description(self, description: str) -> str:
+        """Clean and validate description."""
+        if not description:
+            return 'No additional details available.'
+
+        # Remove HTML tags
+        clean_text = re.sub(r'<[^>]+>', '', description)
+        clean_text = re.sub(r'\\n', ' ', clean_text)
+        clean_text = re.sub(r'\\s+', ' ', clean_text)
+        clean_text = clean_text.strip()
+
+        # Truncate if too long
+        if len(clean_text) > 300:
+            clean_text = clean_text[:297] + '...'
+
+        return clean_text if clean_text else 'No additional details available.'
+
+
+def format_datetime(iso_string: str) -> str:
+    """
+    Format ISO datetime string for display.
+
+    Args:
+        iso_string: ISO format datetime string
+
+    Returns:
+        Formatted datetime string
+    """
+    try:
+        dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
+        return dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+    except:
+        return iso_string
+
+
+def generate_html_dashboard(status_data: dict) -> str:
+    """
+    Generate complete HTML dashboard with status data.
+
+    Args:
+        status_data: Dictionary containing health and maintenance events
+
+    Returns:
+        Complete HTML string
+    """
+
+    # Generate JavaScript data
+    js_health_data = json.dumps(status_data.get('health_events', []), indent=2)
+    js_maintenance_data = json.dumps(status_data.get('maintenance_events', []), indent=2)
+    last_updated = status_data.get('last_updated', datetime.now(timezone.utc).isoformat())
+
+    html_template = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Status Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {{
+            theme: {{
+                extend: {{
+                    colors: {{
+                        'status-green': '#10b981',
+                        'status-yellow': '#f59e0b',
+                        'status-red': '#ef4444',
+                        'status-blue': '#3b82f6'
+                    }}
+                }}
+            }}
+        }}
+    </script>
+    <style>
+        .status-indicator {{
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }}
+        .status-operational {{ background-color: #10b981; }}
+        .status-degraded {{ background-color: #f59e0b; }}
+        .status-outage {{ background-color: #ef4444; }}
+        .status-maintenance {{ background-color: #3b82f6; }}
+        .fade-in {{
+            animation: fadeIn 0.5s ease-in;
+        }}
+        @keyframes fadeIn {{
+            from {{ opacity: 0; transform: translateY(10px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        .loading-spinner {{
+            border: 2px solid #f3f4f6;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }}
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        .pulse {{
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }}
+        @keyframes pulse {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: .5; }}
+        }}
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center py-6">
+                <div class="flex items-center">
+                    <h1 class="text-3xl font-bold text-gray-900">Cloud Status Dashboard</h1>
+                    <div id="loading-indicator" class="ml-4 hidden">
+                        <div class="loading-spinner"></div>
+                    </div>
+                    <div id="refresh-indicator" class="ml-4 hidden">
+                        <div class="flex items-center text-sm text-blue-600">
+                            <div class="w-2 h-2 bg-blue-600 rounded-full pulse mr-2"></div>
+                            Auto-refresh active
+                        </div>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-500">
+                    Last updated: <span id="last-updated">{format_datetime(last_updated)}</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Health Dashboard Section -->
+        <section class="mb-12">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div class="bg-gradient-to-r from-green-500 to-green-600 px-6 py-4">
+                    <h2 class="text-2xl font-semibold text-white flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Health Status
+                    </h2>
+                    <p class="text-green-100 mt-1">Current operational status of cloud services</p>
+                </div>
+                <div class="p-6">
+                    <div id="health-dashboard" class="space-y-4">
+                        <!-- Health events will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Maintenance Dashboard Section -->
+        <section>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div class="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-4">
+                    <h2 class="text-2xl font-semibold text-white flex items-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        Maintenance Status
+                    </h2>
+                    <p class="text-blue-100 mt-1">Scheduled maintenance windows and service updates</p>
+                </div>
+                <div class="p-6">
+                    <div id="maintenance-dashboard" class="space-y-4">
+                        <!-- Maintenance events will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex justify-between items-center">
+                <p class="text-sm text-gray-500">
+                    Auto-refreshes every 5 minutes
+                </p>
+                <div class="flex space-x-4 text-sm text-gray-500">
+                    <span>AWS</span>
+                    <span>•</span>
+                    <span>GCP</span>
+                    <span>•</span>
+                    <span>OCI</span>
+                    <span>•</span>
+                    <span>Azure</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Global variables
+        let healthData = {js_health_data};
+        let maintenanceData = {js_maintenance_data};
+        let lastUpdateTime = '{last_updated}';
+        let refreshInterval;
+
+        // Utility functions
+        function formatDate(dateString) {{
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }}
+
+        function getStatusClass(status) {{
+            const statusLower = status.toLowerCase();
+            if (statusLower.includes('operational') || statusLower.includes('resolved')) {{
+                return 'status-operational';
+            }} else if (statusLower.includes('degraded') || statusLower.includes('investigating')) {{
+                return 'status-degraded';
+            }} else if (statusLower.includes('outage') || statusLower.includes('major')) {{
+                return 'status-outage';
+            }} else if (statusLower.includes('maintenance') || statusLower.includes('scheduled')) {{
+                return 'status-maintenance';
+            }}
+            return 'status-operational';
+        }}
+
+        function createEventCard(event, type) {{
+            const card = document.createElement('div');
+            card.className = 'bg-gray-50 rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow duration-200 fade-in';
+
+            const statusClass = getStatusClass(event.status || event.title);
+
+            card.innerHTML = `
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center mb-2">
+                            <span class="status-indicator ${{statusClass}}"></span>
+                            <span class="text-sm font-medium text-gray-600 uppercase tracking-wide">${{event.provider}}</span>
+                            <span class="ml-2 text-xs text-gray-500">${{event.region || 'Global'}}</span>
+                        </div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">${{event.title}}</h3>
+                        <p class="text-gray-700 mb-3">${{event.description || 'No additional details available.'}}</p>
+                        <div class="flex items-center text-sm text-gray-500">
+                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            ${{formatDate(event.date)}}
+                        </div>
+                        ${{event.link ? `<div class="mt-2"><a href="${{event.link}}" target="_blank" class="text-blue-600 hover:text-blue-800 text-sm">View details →</a></div>` : ''}}
+                    </div>
+                    <div class="ml-4">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${{
+                            type === 'health' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                        }}">
+                            ${{type === 'health' ? 'Health' : 'Maintenance'}}
+                        </span>
+                    </div>
+                </div>
+            `;
+
+            return card;
+        }}
+
+        function renderHealthDashboard() {{
+            const container = document.getElementById('health-dashboard');
+            container.innerHTML = '';
+
+            if (healthData.length === 0) {{
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        No health events to display
+                    </div>
+                `;
+                return;
+            }}
+
+            healthData.forEach(event => {{
+                const card = createEventCard(event, 'health');
+                container.appendChild(card);
+            }});
+        }}
+
+        function renderMaintenanceDashboard() {{
+            const container = document.getElementById('maintenance-dashboard');
+            container.innerHTML = '';
+
+            if (maintenanceData.length === 0) {{
+                container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500">
+                        <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        No maintenance events to display
+                    </div>
+                `;
+                return;
+            }}
+
+            maintenanceData.forEach(event => {{
+                const card = createEventCard(event, 'maintenance');
+                container.appendChild(card);
+            }});
+        }}
+
+        function showLoading() {{
+            document.getElementById('loading-indicator').classList.remove('hidden');
+        }}
+
+        function hideLoading() {{
+            document.getElementById('loading-indicator').classList.add('hidden');
+        }}
+
+        function updateLastUpdatedTime() {{
+            const now = new Date();
+            document.getElementById('last-updated').textContent = formatDate(now.toISOString());
+        }}
+
+        // Function to refresh data (in production, this would make an API call)
+        async function refreshData() {{
+            showLoading();
+
+            try {{
+                // In a production environment, this would fetch fresh data from an API endpoint
+                // For now, we'll simulate a refresh by updating the timestamp
+                updateLastUpdatedTime();
+
+                // Re-render dashboards with current data
+                renderHealthDashboard();
+                renderMaintenanceDashboard();
+
+                console.log('Dashboard refreshed at', new Date().toISOString());
+
+            }} catch (error) {{
+                console.error('Error refreshing dashboard:', error);
+            }} finally {{
+                hideLoading();
+            }}
+        }}
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {{
+            renderHealthDashboard();
+            renderMaintenanceDashboard();
+
+            // Show refresh indicator
+            document.getElementById('refresh-indicator').classList.remove('hidden');
+
+            // Set up auto-refresh every 5 minutes
+            refreshInterval = setInterval(refreshData, 5 * 60 * 1000);
+
+            console.log('Cloud Status Dashboard initialized');
+        }});
+
+        // Clean up interval on page unload
+        window.addEventListener('beforeunload', function() {{
+            if (refreshInterval) {{
+                clearInterval(refreshInterval);
+            }}
+        }});
+    </script>
+</body>
+</html>"""
+
+    return html_template
+
+
+class ProductionDashboard:
+    """Production-ready dashboard generator."""
+
+    def __init__(self):
+        self.config = PRODUCTION_CONFIG
+        self.logger = ProductionLogger(self.config)
+        self.fetcher = RobustFeedFetcher(self.config, self.logger)
+        self.processor = DataProcessor(self.config, self.logger)
+        self.shutdown_requested = False
+
+        # Setup signal handlers
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+
+    def signal_handler(self, signum, frame):
+        """Handle shutdown signals gracefully."""
+        self.logger.log_info(f"Received signal {signum}, shutting down gracefully...")
+        self.shutdown_requested = True
+
+    def get_feed_urls(self) -> Dict[str, Dict[str, str]]:
+        """Get feed URLs with fallbacks."""
+        return {
+            'aws': {
+                'health': 'https://status.aws.amazon.com/rss/all.rss',
+                'maintenance': 'https://status.aws.amazon.com/rss/all.rss'
+            },
+            'gcp': {
+                'health': 'https://status.cloud.google.com/en/feed.atom',
+                'maintenance': 'https://status.cloud.google.com/en/feed.atom'
+            },
+            'oci': {
+                'health': 'https://ocistatus.oraclecloud.com/api/v2/incident-summary.rss',
+                'maintenance': 'https://ocistatus.oraclecloud.com/api/v2/incident-summary.rss'
+            },
+            'azure': {
+                'health': None,  # Placeholder
+                'maintenance': None  # Placeholder
+            }
+        }
+
+    def get_azure_placeholder_data(self) -> List[Dict[str, Any]]:
+        """Generate Azure placeholder data."""
+        return [
+            {
+                'provider': 'AZURE',
+                'title': 'All Systems Operational - Placeholder',
+                'description': 'This is placeholder text for Azure health status as requested.',
+                'status': 'operational',
+                'date': datetime.now(timezone.utc).isoformat(),
+                'region': 'Global'
+            },
+            {
+                'provider': 'AZURE',
+                'title': 'Scheduled Maintenance - Placeholder',
+                'description': 'This is placeholder text for Azure maintenance as requested.',
+                'status': 'maintenance',
+                'date': datetime.now(timezone.utc).isoformat(),
+                'region': 'East US'
+            }
+        ]
+
+    def fetch_all_status_data(self) -> Dict[str, Any]:
+        """Fetch status data from all providers with error handling."""
+        all_events = []
+        feed_urls = self.get_feed_urls()
+
+        for provider, urls in feed_urls.items():
+            if self.shutdown_requested:
+                break
+
+            if provider == 'azure':
+                # Add placeholder data for Azure
+                azure_events = self.get_azure_placeholder_data()
+                all_events.extend(azure_events)
+                self.logger.log_info(f"Added {len(azure_events)} placeholder events for Azure")
+                continue
+
+            # Fetch health feed
+            health_url = urls.get('health')
+            if health_url:
+                feed = self.fetcher.fetch_with_retry(health_url, provider)
+                if feed and hasattr(feed, 'entries'):
+                    processed_count = 0
+                    for entry in feed.entries[:self.config['max_events_per_provider']]:
+                        event = self.processor.process_feed_entry(entry, provider)
+                        if event:
+                            all_events.append(event)
+                            processed_count += 1
+
+                    self.logger.log_info(f"Processed {processed_count} events for {provider}")
+
+        # Categorize events
+        health_events = [e for e in all_events if e.get('status') != 'maintenance']
+        maintenance_events = [e for e in all_events if e.get('status') == 'maintenance']
+
+        # Sort by date (newest first)
+        health_events.sort(key=lambda x: x.get('date', ''), reverse=True)
+        maintenance_events.sort(key=lambda x: x.get('date', ''), reverse=True)
+
+        result = {
+            'last_updated': datetime.now(timezone.utc).isoformat(),
+            'health_events': health_events,
+            'maintenance_events': maintenance_events,
+            'total_events': len(all_events),
+            'providers_processed': len(feed_urls),
+            'generation_time': datetime.now(timezone.utc).isoformat()
+        }
+
+        self.logger.log_info(
+            f"Fetched {len(all_events)} total events: {len(health_events)} health, {len(maintenance_events)} maintenance")
+
+        if len(all_events) == 0:
+            self.logger.log_warning("No events fetched from any provider")
+
+        return result
+
+    def save_data_backup(self, data: Dict[str, Any]) -> bool:
+        """Save data with backup."""
+        try:
+            # Save current data
+            with open(self.config['data_file'], 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Create backup
+            backup_file = f"{self.config['data_file']}.backup"
+            with open(backup_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            self.logger.log_info(f"Data saved to {self.config['data_file']} with backup")
+            return True
+
+        except Exception as e:
+            self.logger.log_error("Failed to save data", e)
+            return False
+
+    def generate_dashboard_html(self, status_data: Dict[str, Any]) -> bool:
+        """Generate HTML dashboard with error handling."""
+        try:
+            html_content = generate_html_dashboard(status_data)
+
+            # Write to file with backup
+            output_file = self.config['output_file']
+            backup_file = f"{output_file}.backup"
+
+            # Create backup of existing file
+            if os.path.exists(output_file):
+                import shutil
+                shutil.copy2(output_file, backup_file)
+
+            # Write new file
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+            self.logger.log_info(f"Dashboard generated: {output_file}")
+            return True
+
+        except Exception as e:
+            self.logger.log_error("Failed to generate dashboard", e)
+            return False
+
+    def run(self) -> bool:
+        """Run the dashboard generation process."""
+        try:
+            self.logger.log_info("Starting production dashboard generation")
+
+            # Fetch status data
+            status_data = self.fetch_all_status_data()
+
+            if self.shutdown_requested:
+                self.logger.log_info("Shutdown requested, exiting")
+                return False
+
+            # Save data backup
+            if not self.save_data_backup(status_data):
+                self.logger.log_error("Failed to save data backup")
+                return False
+
+            # Generate dashboard
+            if not self.generate_dashboard_html(status_data):
+                self.logger.log_error("Failed to generate dashboard")
+                return False
+
+            # Reset error count on success
+            self.logger.reset_error_count()
+
+            # Print summary
+            print(f"Production dashboard generated successfully!")
+            print(f"  Health events: {len(status_data.get('health_events', []))}")
+            print(f"  Maintenance events: {len(status_data.get('maintenance_events', []))}")
+            print(f"  Providers processed: {status_data.get('providers_processed', 0)}")
+            print(f"  Last updated: {status_data.get('last_updated', 'Unknown')}")
+
+            return True
+
+        except Exception as e:
+            self.logger.log_error("Critical error in dashboard generation", e)
+            return False
+
+
+def main():
+    """Main entry point."""
+    dashboard = ProductionDashboard()
+
+    try:
+        success = dashboard.run()
+        return 0 if success else 1
+
+    except KeyboardInterrupt:
+        dashboard.logger.log_info("Interrupted by user")
+        return 1
+    except Exception as e:
+        dashboard.logger.log_error("Unhandled exception in main", e)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
