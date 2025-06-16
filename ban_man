@@ -1,0 +1,376 @@
+import requests
+import json
+from datetime import datetime, timedelta
+import numpy as np
+import csv
+from openpyxl import Workbook
+
+
+class SevOneAPI:
+    def __init__(self, base_url, username, password):
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+        self.session = requests.Session()
+        self.token = None
+
+    def _authenticate(self):
+        # Placeholder for authentication logic
+        # In a real scenario, this would involve a POST request to an authentication endpoint
+        # and storing the returned token.
+        print("Authenticating with SevOne API...")
+        # For now, we\'ll simulate a successful authentication
+        self.token = "simulated_sevone_api_token"
+        print("Authentication successful.")
+
+    def _make_request(self, method, endpoint, params=None, data=None):
+        if not self.token:
+            self._authenticate()
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+        }
+
+        url = f"{self.base_url}{endpoint}"
+
+        try:
+            response = self.session.request(method, url, headers=headers, params=params, json=data)
+            response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
+            return response.json()
+        except requests.exceptions.HTTPError as http_err:
+            print(f"HTTP error occurred: {http_err}")
+            print(f"Response content: {response.text}")
+            # Attempt to re-authenticate if token expired or invalid
+            if response.status_code in [401, 403]:
+                print("Token might be expired or invalid. Re-authenticating...")
+                self.token = None  # Clear the old token
+                self._authenticate()
+                # Retry the request once after re-authentication
+                headers["Authorization"] = f"Bearer {self.token}"
+                response = self.session.request(method, url, headers=headers, params=params, json=data)
+                response.raise_for_status()
+                return response.json()
+            raise
+        except requests.exceptions.ConnectionError as conn_err:
+            print(f"Connection error occurred: {conn_err}")
+            raise
+        except requests.exceptions.Timeout as timeout_err:
+            print(f"Timeout error occurred: {timeout_err}")
+            raise
+        except requests.exceptions.RequestException as req_err:
+            print(f"An unexpected error occurred: {req_err}")
+            raise
+
+    def get_devices(self, fields=None):
+        # Placeholder for getting devices
+        print("Fetching devices...")
+        # In a real scenario, this would call _make_request with the appropriate endpoint
+        # For now, return dummy data
+        return [
+            {"id": "device1", "name": "NCS-Router-Equinix-Ashburn", "ipAddress": "192.168.1.1",
+             "location": "Equinix Ashburn", "totalCapacity": 400000000000},
+            {"id": "device2", "name": "NCS-Router-GCP-Dallas", "ipAddress": "192.168.1.2", "location": "GCP Dallas",
+             "totalCapacity": 400000000000}
+        ]
+
+    def get_device_interfaces(self, device_id):
+        # Placeholder for getting interfaces for a device
+        print(f"Fetching interfaces for device {device_id}...")
+        # For now, return dummy data
+        if device_id == "device1":
+            return [
+                {"interfaceId": "int1_1", "deviceId": "device1", "name": "GigabitEthernet0/0/0",
+                 "description": "Uplink to AWS", "type": "Physical", "speed": 400000000000},
+                {"interfaceId": "int1_2", "deviceId": "device1", "name": "Bundle-Ether10.100",
+                 "description": "VRF-Business-A", "type": "BundleSubInterface", "vrf": "VRF-Business-A",
+                 "allocatedBandwidth": 5000000000, "speed": 400000000000},
+                {"interfaceId": "int1_3", "deviceId": "device1", "name": "Bundle-Ether10.200",
+                 "description": "VRF-Business-B", "type": "BundleSubInterface", "vrf": "VRF-Business-B",
+                 "allocatedBandwidth": 10000000000, "speed": 400000000000}
+            ]
+        elif device_id == "device2":
+            return [
+                {"interfaceId": "int2_1", "deviceId": "device2", "name": "GigabitEthernet0/0/1",
+                 "description": "Uplink to GCP", "type": "Physical", "speed": 400000000000},
+                {"interfaceId": "int2_2", "deviceId": "device2", "name": "Bundle-Ether20.100",
+                 "description": "VRF-Business-C", "type": "BundleSubInterface", "vrf": "VRF-Business-C",
+                 "allocatedBandwidth": 5000000000, "speed": 400000000000}
+            ]
+        return []
+
+    def get_utilization_metrics(self, interface_ids, start_time, end_time, granularity):
+        # Placeholder for getting utilization metrics
+        print(
+            f"Fetching utilization metrics for interfaces {interface_ids} from {start_time} to {end_time} with {granularity} granularity...")
+        # For now, return dummy data
+        metrics = {}
+        for int_id in interface_ids:
+            metrics[int_id] = [
+                {"timestamp": "2025-06-15T10:00:00Z", "inUtilizationPercent": 75.0, "outUtilizationPercent": 60.0,
+                 "inBitsPerSecond": 300000000000, "outBitsPerSecond": 240000000000},
+                {"timestamp": "2025-06-15T10:05:00Z", "inUtilizationPercent": 80.0, "outUtilizationPercent": 65.0,
+                 "inBitsPerSecond": 320000000000, "outBitsPerSecond": 260000000000}
+            ]
+        return metrics
+
+
+class MonitoringTool:
+    def __init__(self, sevone_base_url, sevone_username, sevone_password):
+        self.sevone_api = SevOneAPI(sevone_base_url, sevone_username, sevone_password)
+        self.monitored_devices = {}
+        self.monitored_interfaces = {}
+
+    def discover_interfaces(self):
+        print("Starting interface discovery...")
+        devices = self.sevone_api.get_devices()
+        for device in devices:
+            self.monitored_devices[device["id"]] = device
+            print(f"Discovered device: {device["name"]} ({device["ipAddress"]})")
+            interfaces = self.sevone_api.get_device_interfaces(device["id"])
+            for interface in interfaces:
+                self.monitored_interfaces[interface["interfaceId"]] = interface
+                print(f"  Discovered interface: {interface["name"]} (Type: {interface["type"]})")
+        print("Interface discovery complete.")
+
+    def get_realtime_utilization(self, duration_minutes=5):
+        print(f"Fetching real-time utilization for the last {duration_minutes} minutes...")
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(minutes=duration_minutes)
+
+        utilization_data = {}
+        interface_ids = list(self.monitored_interfaces.keys())
+
+        if not interface_ids:
+            print("No interfaces discovered to monitor.")
+            return {}
+
+        metrics = self.sevone_api.get_utilization_metrics(
+            interface_ids,
+            start_time.isoformat() + "Z",
+            end_time.isoformat() + "Z",
+            f"{duration_minutes}min"
+        )
+
+        for int_id, data_points in metrics.items():
+            interface_name = self.monitored_interfaces[int_id]["name"]
+            utilization_data[interface_name] = []
+            for dp in data_points:
+                utilization_data[interface_name].append({
+                    "timestamp": dp["timestamp"],
+                    "inUtilizationPercent": dp["inUtilizationPercent"],
+                    "outUtilizationPercent": dp["outUtilizationPercent"]
+                })
+        print("Real-time utilization fetch complete.")
+        return utilization_data
+
+    def aggregate_utilization(self, utilization_data, time_period="daily"):
+        print(f"Aggregating utilization data for {time_period}...")
+        aggregated_data = {}
+        for interface_name, data_points in utilization_data.items():
+            in_util_sum = 0
+            out_util_sum = 0
+            in_util_max = 0
+            out_util_max = 0
+            count = 0
+
+            for dp in data_points:
+                in_util_sum += dp["inUtilizationPercent"]
+                out_util_sum += dp["outUtilizationPercent"]
+                in_util_max = max(in_util_max, dp["inUtilizationPercent"])
+                out_util_max = max(out_util_max, dp["inUtilizationPercent"])
+                count += 1
+
+            if count > 0:
+                aggregated_data[interface_name] = {
+                    "avgInUtilizationPercent": in_util_sum / count,
+                    "maxInUtilizationPercent": in_util_max,
+                    "avgOutUtilizationPercent": out_util_sum / count,
+                    "maxOutUtilizationPercent": out_util_max,
+                    "timePeriod": time_period
+                }
+        print("Aggregation complete.")
+        return aggregated_data
+
+    def sort_by_utilization(self, aggregated_data, metric="maxInUtilizationPercent", reverse=True):
+        print(f"Sorting interfaces by {metric}...")
+        sorted_interfaces = sorted(
+            aggregated_data.items(),
+            key=lambda item: item[1].get(metric, 0),
+            reverse=reverse
+        )
+        print("Sorting complete.")
+        return sorted_interfaces
+
+    def check_thresholds(self, aggregated_data, threshold=90.0):
+        print(f"Checking utilization thresholds (>{threshold}%)...")
+        alerts = []
+        for interface_name, data in aggregated_data.items():
+            if data["maxInUtilizationPercent"] > threshold:
+                alerts.append({
+                    "interface": interface_name,
+                    "direction": "In",
+                    "actualUtilization": data["maxInUtilizationPercent"],
+                    "threshold": threshold,
+                    "message": f"Interface {interface_name} In-Utilization exceeded {threshold}%: {data["maxInUtilizationPercent"]:.2f}%"
+                })
+            if data["maxOutUtilizationPercent"] > threshold:
+                alerts.append({
+                    "interface": interface_name,
+                    "direction": "Out",
+                    "actualUtilization": data["maxOutUtilizationPercent"],
+                    "threshold": threshold,
+                    "message": f"Interface {interface_name} Out-Utilization exceeded {threshold}%: {data["maxOutUtilizationPercent"]:.2f}%"
+                })
+        print("Threshold check complete.")
+        return alerts
+
+    def predict_bandwidth_utilization(self, historical_data, forecast_horizon_days=7):
+        print(f"Predicting bandwidth utilization for the next {forecast_horizon_days} days...")
+        predictions = {}
+        for interface_name, data_points in historical_data.items():
+            if data_points:
+                in_util_values = [dp["inUtilizationPercent"] for dp in data_points]
+                out_util_values = [dp["outUtilizationPercent"] for dp in data_points]
+
+                predicted_in_util = np.mean(in_util_values) if in_util_values else 0
+                predicted_out_util = np.mean(out_util_values) if out_util_values else 0
+
+                predictions[interface_name] = {
+                    "predictedInUtilizationPercent": predicted_in_util,
+                    "predictedOutUtilizationPercent": predicted_out_util,
+                    "forecastHorizonDays": forecast_horizon_days
+                }
+            else:
+                predictions[interface_name] = {
+                    "predictedInUtilizationPercent": 0,
+                    "predictedOutUtilizationPercent": 0,
+                    "forecastHorizonDays": forecast_horizon_days
+                }
+        print("Bandwidth prediction complete.")
+        return predictions
+
+    def export_to_csv(self, data, filename="utilization_data.csv"):
+        print(f"Exporting data to {filename} (CSV)...")
+        if not data:
+            print("No data to export.")
+            return
+
+        headers = ["Interface", "Time Period", "Avg In Utilization %", "Max In Utilization %", "Avg Out Utilization %",
+                   "Max Out Utilization %"]
+
+        with open(filename, mode="w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(headers)
+            for interface_name, metrics in data.items():
+                writer.writerow([
+                    interface_name,
+                    metrics.get("timePeriod", "N/A"),
+                    f"{metrics.get("avgInUtilizationPercent", 0):.2f}",
+                    f"{metrics.get("maxInUtilizationPercent", 0):.2f}",
+                    f"{metrics.get("avgOutUtilizationPercent", 0):.2f}",
+                    f"{metrics.get("maxOutUtilizationPercent", 0):.2f}"
+                ])
+        print(f"Data exported to {filename}")
+
+    def export_to_excel(self, data, filename="utilization_data.xlsx"):
+        print(f"Exporting data to {filename} (Excel)...")
+        if not data:
+            print("No data to export.")
+            return
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Utilization Data"
+
+        headers = ["Interface", "Time Period", "Avg In Utilization %", "Max In Utilization %", "Avg Out Utilization %",
+                   "Max Out Utilization %"]
+        ws.append(headers)
+
+        for interface_name, metrics in data.items():
+            ws.append([
+                interface_name,
+                metrics.get("timePeriod", "N/A"),
+                float(f"{metrics.get("avgInUtilizationPercent", 0):.2f}"),
+                float(f"{metrics.get("maxInUtilizationPercent", 0):.2f}"),
+                float(f"{metrics.get("avgOutUtilizationPercent", 0):.2f}"),
+                float(f"{metrics.get("maxOutUtilizationPercent", 0):.2f}")
+            ])
+
+        wb.save(filename)
+        print(f"Data exported to {filename}")
+
+    def export_to_json(self, data, filename="utilization_data.json"):
+        print(f"Exporting data to {filename} (JSON)...")
+        with open(filename, mode="w") as file:
+            json.dump(data, file, indent=2)
+        print(f"Data exported to {filename}")
+
+    def send_to_bql(self, data):
+        print("Simulating sending data to SevOne BQL...")
+        # In a real implementation, this would involve using the SevOne API to push data to BQL.
+        # This might require specific BQL API endpoints or a data ingestion mechanism.
+        # The exact implementation depends on the SevOne BQL API capabilities.
+        print("Data simulated to be sent to BQL.")
+        # Example of what might be sent (conceptual):
+        # for interface_name, metrics in data.items():
+        #     bql_payload = {
+        #         "metricName": "interface_utilization",
+        #         "tags": {"interface": interface_name, "direction": "in"},
+        #         "value": metrics["maxInUtilizationPercent"],
+        #         "timestamp": datetime.utcnow().isoformat() + "Z"
+        #     }
+        #     self.sevone_api.post_to_bql_endpoint(bql_payload)
+
+
+if __name__ == "__main__":
+    # Replace with your actual SevOne base URL, username, and password
+    sevone_base_url = "https://your-sevone-instance.com/api/v3"
+    sevone_username = "your_username"
+    sevone_password = "your_password"
+
+    tool = MonitoringTool(sevone_base_url, sevone_username, sevone_password)
+
+    # Step 1: Discover interfaces
+    tool.discover_interfaces()
+
+    # Step 2: Get real-time utilization for the last 5 minutes
+    realtime_data = tool.get_realtime_utilization(duration_minutes=5)
+
+    print("\nReal-time Utilization Data:")
+    print(json.dumps(realtime_data, indent=2))
+
+    # Step 3: Aggregate data (example: daily aggregation of the real-time data)
+    aggregated_daily_data = tool.aggregate_utilization(realtime_data, time_period="daily")
+    print("\nAggregated Daily Utilization Data:")
+    print(json.dumps(aggregated_daily_data, indent=2))
+
+    # Step 4: Sort interfaces by max In Utilization
+    sorted_interfaces = tool.sort_by_utilization(aggregated_daily_data, metric="maxInUtilizationPercent")
+    print("\nTop Interfaces by Max In Utilization:")
+    for iface, data in sorted_interfaces:
+        print(f"- {iface}: {data["maxInUtilizationPercent"]:.2f}% In, {data["maxOutUtilizationPercent"]:.2f}% Out")
+
+    # Step 5: Check for alerts
+    alerts = tool.check_thresholds(aggregated_daily_data, threshold=70.0)  # Using a lower threshold for demonstration
+    print("\nAlerts:")
+    if alerts:
+        for alert in alerts:
+            print(f"- {alert["message"]}")
+    else:
+        print("No alerts triggered.")
+
+    # Step 6: Predict bandwidth utilization (using the real-time data as historical for this example)
+    predictions = tool.predict_bandwidth_utilization(realtime_data, forecast_horizon_days=7)
+    print("\nBandwidth Predictions:")
+    print(json.dumps(predictions, indent=2))
+
+    # Step 7: Export data
+    tool.export_to_csv(aggregated_daily_data, "aggregated_utilization.csv")
+    tool.export_to_excel(aggregated_daily_data, "aggregated_utilization.xlsx")
+    tool.export_to_json(aggregated_daily_data, "aggregated_utilization.json")
+
+    # Step 8: Send data to BQL (simulated)
+    tool.send_to_bql(aggregated_daily_data)
+
+
