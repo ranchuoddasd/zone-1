@@ -1,0 +1,50 @@
+import boto3
+import json
+
+def get_all_direct_connect_details():
+    # Initialize client with error handling
+    try:
+        client = boto3.client('directconnect')
+    except Exception as e:
+        print(f"Error initializing client: {e}")
+        return
+    
+    # Helper function to handle pagination
+    def paginate(method_name, **kwargs):
+        paginator = client.get_paginator(method_name)
+        page_iterator = paginator.paginate(**kwargs)
+        results = []
+        for page in page_iterator:
+            key = [k for k in page.keys() if k != 'ResponseMetadata'][0]
+            results.extend(page[key])
+        return results
+
+    try:
+        # 1. Get Direct Connect Connections
+        connections = paginate('describe_connections')
+        
+        # 2. Get Direct Connect Gateways
+        gateways = paginate('describe_direct_connect_gateways')
+        
+        # 3. Get Gateway Associations
+        associations = paginate('describe_direct_connect_gateway_associations')
+        
+        # 4. Get Gateway Attachments (gateways + virtual interfaces)
+        attachments = paginate('describe_direct_connect_gateway_attachments')
+
+        return {
+            "Connections": connections,
+            "Gateways": gateways,
+            "Associations": associations,
+            "Attachments": attachments
+        }
+
+    except client.exceptions.ClientError as e:
+        print(f"AWS API Error: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+if __name__ == "__main__":
+    results = get_all_direct_connect_details()
+    if results:
+        print(json.dumps(results, indent=2, default=str))
