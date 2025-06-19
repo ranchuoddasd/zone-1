@@ -1,0 +1,117 @@
+
+
+def fetch_aws_dx_info():
+    dx = boto3.client('directconnect')
+    ec2 = boto3.client('ec2')
+    
+    vifs = dx.describe_virtual_interfaces()['virtualInterfaces']
+    vpcs = ec2.describe_vpcs()['Vpcs']
+    vpc_map = {v['VpcId']: v['CidrBlock'] for v in vpcs}
+    
+    # Get VGW to VPC associations
+    vgws = ec2.describe_vpn_gateways()['VpnGateways']
+    vgw_vpc_map = {}
+    for vgw in vgws:
+        if vgw.get('VpcAttachments'):
+            for attachment in vgw['VpcAttachments']:
+                if attachment['State'] == 'attached':
+                    vgw_vpc_map[vgw['VpnGatewayId']] = attachment['VpcId']
+    
+    result = []
+    for vif in vifs:
+        vgw_id = vif.get('virtualGatewayId')
+        vpc_id = vgw_vpc_map.get(vgw_id, 'N/A')
+        
+        result.append({
+            "Cloud": "AWS",
+            "Connection_Type": "Direct Connect",
+            "Gateway_ID": vif.get('directConnectGatewayId', vgw_id),
+            "Virtual_Interface_ID": vif['virtualInterfaceId'],
+            "Customer_ASN": vif.get('asn'),
+            "BGP_Peer_IP": vif.get('customerAddress'),
+            "Cloud_Peer_IP": vif.get('amazonAddress'),  # Changed from AWS_Peer_IP
+            "VPC_ID": vpc_id,
+            "VPC_CIDR": vpc_map.get(vpc_id, 'N/A'),
+            "Region": ec2.meta.region_name
+        })
+    return result
+
+def fetch_gcp_info(project, region):
+    interconnect_attachments_client = compute_v1.InterconnectAttachmentsClient()
+    network_client = compute_v1.NetworksClient()
+    subnet_client = compute_v1.SubnetsClient()
+    
+    attachments = interconnect_attachments_client.list(project=project, region=region)
+    networks = network_client.list(project=project)
+    
+    # Build network to CIDR mapping
+    network_cidr_map = {}
+    for network in networks:
+        network_name = network.name
+        # Get subnets for this network
+        subnets = subnet_client.list(project=project, region=region)
+        cidrs = []
+        for subnet in subnets:
+            if subnet.network.endswith(f"/{network_name}"):
+                cidrs.append(subnet.ip_cidr_range)
+        network_cidr_map[network_name] = ", ".join(cidrs) if cidrs else "N/A"
+    
+    result = []
+    for att in attachments:
+        network_name = att.network.split('/')[-1]
+        result.append({
+            "Cloud": "GCP",
+            "Connection_Type": "Dedicated Interconnect",
+            "Gateway_ID": att.router.split('/')[-1] if att.router else "N/A",
+            "Virtual_Interface_ID": att.name,
+            "Customer_ASN": att.partner_asn,
+            "BGP_Peer_IP": att.customer_router_ip_address,
+            "Cloud_Peer_IP": att.google_router_ip_address,
+            "VPC_ID": network_name,
+            "VPC_CIDR": network_cidr_map.get(network_name, 'N/A'),
+            "Region": region
+        })
+    return result
+
+def fetch_oci_info():
+    config = oci.config.from_file()
+    compartment_id = config["tenancy"]
+    network_client = oci.core.VirtualNetworkClient(config)
+    vc_client = oci.core.VirtualCircuitClient(config)
+    
+    vcs = vc_client.list_virtual_circuits(compartment_id).data
+    vcns = network_client.list_vcns(compartment_id).data
+    drgs = network_client.list_drgs(compartment_id).data
+    
+    # Create mappings
+    vcn_map = {v.id: v.cidr_block for v in vcns}
+    drg_vcn_map = {}
+    
+    # Get DRG attachments to find VCN associations
+    for drg in drgs:
+        attachments = network_client.list_drg_attachments(
+            compartment_id, drg_id=drg.id
+        ).data
+        for attachment in attachments:
+            if hasattr(attachment, 'vcn_id') and attachment.vcn_id:
+                drg_vcn_map[drg.id] = attachment.vcn_id
+    
+    result = []
+    for vc in vcs:
+        # Find associated VCN through DRG
+        vcn_id = drg_vcn_map.get(vc.gateway_id, 'N/A')
+        
+        result.append({
+            "Cloud": "OCI",
+            "Connection_Type": "FastConnect",
+            "Gateway_ID": vc.gateway_id,
+            "Virtual_Interface_ID": vc.id,
+            "Customer_ASN": vc.customer_bgp_asn,
+            "BGP_Peer_IP": vc.customer_bgp_peering_ip,
+            "Cloud_Peer_IP": vc.oracle_bgp_peering_ip,
+            "VPC_ID": vcn_id,
+            "VPC_CIDR": vcn_map.get(vcn_id, 'N/A'),
+            "Region": config.get('region', 'unknown')
+        })
+    return result
+
