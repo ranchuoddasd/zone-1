@@ -114,4 +114,6 @@ def fetch_oci_info():
             "Region": config.get('region', 'unknown')
         })
     return result
+============
 
+https://cloud.google.com/python/docs/reference
