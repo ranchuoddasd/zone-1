@@ -1,0 +1,230 @@
+import networkx as nx
+import matplotlib.pyplot as plt
+from ciscoconfparse import CiscoConfParse
+import re
+import io
+
+# Sample configurations
+cisco_config = """
+interface FastEthernet0/1
+ ip address 172.16.1.2 255.255.255.252
+ ip policy route-map PBR
+!
+access-list 101 permit ip 192.168.10.0 0.0.0.255 200.100.30.248 0.0.0.7
+!
+route-map PBR permit 10
+ match ip address 101
+ set community 65000:100
+ set next-hop 192.168.1.1
+!
+router bgp 65000
+ neighbor 172.16.1.1 remote-as 65001
+ neighbor 172.16.1.1 send-community
+"""
+
+juniper_config = """
+interfaces {
+    ge-0/0/1 {
+        unit 0 {
+            family inet {
+                address 172.16.1.1/30;
+                filter input FBF-FILTER;
+            }
+        }
+    }
+}
+firewall {
+    family inet {
+        filter FBF-FILTER {
+            term block-subnet {
+                from {
+                    source-address {
+                        192.168.10.0/24;
+                    }
+                }
+                then {
+                    discard;
+                }
+            }
+            term accept-all {
+                then accept;
+            }
+        }
+    }
+}
+policy-options {
+    prefix-list customers {
+        172.16.1.0/24;
+    }
+    policy-statement BGP-EXPORT {
+        term export-customers {
+            from {
+                prefix-list customers;
+            }
+            then {
+                community add export-comm;
+                accept;
+            }
+        }
+    }
+    community export-comm members 65000:100;
+}
+protocols {
+    bgp {
+        group ext {
+            neighbor 172.16.1.2 {
+                export BGP-EXPORT;
+            }
+        }
+    }
+}
+"""
+
+
+# Parse configurations
+def parse_config(config_text, platform="cisco"):
+    if platform == "cisco":
+        parse = CiscoConfParse(config_text.splitlines())
+        return parse
+    elif platform == "juniper":
+        config_dict = {
+            "interfaces": [],
+            "firewall_filters": [],
+            "prefix_lists": [],
+            "communities": [],
+            "route_policies": []
+        }
+        lines = config_text.splitlines()
+        current_section = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith("interfaces"):
+                current_section = "interfaces"
+            elif line.startswith("firewall"):
+                current_section = "firewall_filters"
+            elif line.startswith("policy-options"):
+                current_section = "policy-options"
+            elif line.startswith("protocols"):
+                current_section = "protocols"
+            elif current_section and line:
+                if current_section == "policy-options" and "prefix-list" in line:
+                    config_dict["prefix_lists"].append(line)
+                elif current_section == "policy-options" and "community" in line:
+                    config_dict["communities"].append(line)
+                elif current_section == "policy-options" and "policy-statement" in line:
+                    config_dict["route_policies"].append(line)
+                elif current_section == "firewall" and "filter" in line:
+                    config_dict["firewall_filters"].append(line)
+        return config_dict
+
+
+# Analyze impact
+def analyze_impact(cisco_parse, juniper_config_dict):
+    impact_report = []
+
+    # Cisco route-map and ACL impact
+    acls = cisco_parse.find_objects(r"^access-list")
+    route_maps = cisco_parse.find_objects(r"^route-map")
+    for rm in route_maps:
+        match = rm.re_search_children(r"match ip address")
+        set_comm = rm.re_search_children(r"set community")
+        if match and set_comm:
+            acl_id = match[0].text.split()[-1]
+            acl = next((a for a in acls if a.text.split()[1] == acl_id), None)
+            if acl:
+                impact_report.append(
+                    f"Cisco Route-Map {rm.text}: Matches {acl.text}, sets community {set_comm[0].text.split()[-1]}")
+                impact_report.append(
+                    f"Impact: Routes from 192.168.10.0/24 to 200.100.30.248/29 redirected to next-hop 192.168.1.1")
+                impact_report.append("Neighbor R2: Receives routes with community 65000:100, may alter BGP decisions")
+                impact_report.append("Neighbor R3: Receives routes with community 65000:100, may alter BGP decisions")
+
+    return impact_report
+
+
+# Visualize network with hop-by-hop analysis
+def visualize_hop_by_hop(topology, impact_report):
+    pos = nx.spring_layout(topology)
+    plt.figure(figsize=(12, 8))
+
+    # Draw nodes
+    nx.draw_networkx_nodes(topology, pos, node_color="lightgreen", node_size=1000, node_shape="o")
+    nx.draw_networkx_labels(topology, pos, font_size=10)
+
+    # Draw edges with latency
+    edges = [("WIN-0F30G02099", "R2"), ("R2", "R5"), ("R5", "R8"), ("R8", "R9"), ("R9", "R3"), ("R3", "NetSuite")]
+    latencies = [9, 18, 17, 10, 19, 11]  # ms values from snapshot
+    normal_edges = [(edges[i], latencies[i]) for i in range(len(edges) - 1)]
+    loop_edge = ("R9", "R9")  # Self-loop on R9 to simulate routing loop
+
+    # Draw normal edges in green
+    for (u, v), latency in normal_edges:
+        nx.draw_networkx_edges(topology, pos, edgelist=[(u, v)], edge_color="green", width=2)
+        x = (pos[u][0] + pos[v][0]) / 2
+        y = (pos[u][1] + pos[v][1]) / 2
+        plt.text(x, y, f"{latency}ms", fontsize=8, ha="center", va="center")
+
+    # Draw loop edge in red
+    nx.draw_networkx_edges(topology, pos, edgelist=[loop_edge], edge_color="red", width=2, style="dashed")
+    x = pos[loop_edge[0]][0] + 0.1  # Adjust position for self-loop label
+    y = pos[loop_edge[0]][1]
+    plt.text(x, y, "19ms\nPotential Routing Loop", fontsize=8, ha="left", va="center", color="red")
+
+    # Add impact report annotations
+    y_offset = 0.1
+    for i, impact in enumerate(impact_report):
+        plt.text(0.05, 0.9 - i * y_offset, impact, transform=plt.gca().transAxes, fontsize=8,
+                 bbox=dict(facecolor="white", alpha=0.8))
+
+    # Add metrics box (similar to snapshot)
+    plt.text(0.75, 0.9, "Latency: 0ms 5ms 39ms\nPacket Loss: 0%\nTransit: 1.345%\nLikelihood: 1%",
+             transform=plt.gca().transAxes, fontsize=8, bbox=dict(facecolor="white", alpha=0.8))
+
+    # Add title and layout
+    plt.title(
+        "Map network pathing with hop-by-hop analysis\nBrno Office to NetSuite | system.na2.netsuite.com | PORT 443",
+        fontsize=12, pad=10)
+    plt.axis("off")
+    plt.savefig("network_impact.png", format="png", bbox_inches="tight")
+    plt.close()
+    return "Visualization saved as network_impact.png"
+
+
+# Main function
+def main():
+    # Create network topology with self-loop on R9 for routing loop
+    G = nx.Graph()
+    G.add_nodes_from(["WIN-0F30G02099", "R2", "R5", "R8", "R9", "R3", "NetSuite"])
+    G.add_edges_from(
+        [("WIN-0F30G02099", "R2"), ("R2", "R5"), ("R5", "R8"), ("R8", "R9"), ("R9", "R3"), ("R3", "NetSuite"),
+         ("R9", "R9")])
+
+    # Parse configurations
+    cisco_parse = parse_config(cisco_config, "cisco")
+    juniper_parse = parse_config(juniper_config, "juniper")
+
+    # Analyze impact
+    impact_report = analyze_impact(cisco_parse, juniper_parse)
+
+    # Visualize
+    viz_result = visualize_hop_by_hop(G, impact_report)
+
+    # Generate configuration preview
+    config_preview = f"""
+Cisco Configuration (R2):
+{cisco_config}
+
+Juniper Configuration (R9):
+{juniper_config}
+
+Impact Report:
+{chr(10).join(impact_report)}
+
+{viz_result}
+"""
+    return config_preview
+
+
+if __name__ == "__main__":
+    result = main()
+    print(result)
