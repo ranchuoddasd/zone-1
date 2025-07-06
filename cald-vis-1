@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Network Configuration Impact Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header p {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            height: calc(100vh - 200px);
+        }
+        
+        .config-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+        }
+        
+        .visualization-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+        
+        .section-title {
+            font-size: 1.4em;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        
+        .file-upload-area {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin: 15px 0;
+            background: rgba(52, 152, 219, 0.1);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .file-upload-area:hover {
+            border-color: #2980b9;
+            background: rgba(52, 152, 219, 0.2);
+        }
+        
+        .file-upload-area.dragover {
+            border-color: #27ae60;
+            background: rgba(46, 204, 113, 0.2);
+        }
+        
+        .file-input {
+            display: none;
+        }
+        
+        .uploaded-files {
+            margin: 15px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .file-item.cisco {
+            border-left-color: #e74c3c;
+        }
+        
+        .file-item.juniper {
+            border-left-color: #f39c12;
+        }
+        
+        .file-remove {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .config-input {
+            margin-bottom: 20px;
+        }
+        
+        .config-input label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .config-input textarea {
+            width: 100%;
+            height: 120px;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        
+        .config-input textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin: 5px;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6);
+        }
+        
+        .btn-success {
+            background: linear-gradient(45deg, #27ae60, #229954);
+            box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4);
+        }
+        
+        .btn-success:hover {
+            box-shadow: 0 6px 20px rgba(39, 174, 96, 0.6);
+        }
+        
+        .btn-warning {
+            background: linear-gradient(45deg, #f39c12, #e67e22);
+            box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);
+        }
+        
+        .btn-warning:hover {
+            box-shadow: 0 6px 20px rgba(243, 156, 18, 0.6);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+        }
+        
+        .btn-danger:hover {
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.6);
+        }
+        
+        .device-summary {
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            border-left: 4px solid #3498db;
+        }
+        
+        .device-count {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+        }
+        
+        .count-item {
+            text-align: center;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .count-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .count-label {
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+        
+        .network-topology {
+            width: 100%;
+            height: 450px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .impact-analysis {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 10px;
+            border-left: 4px solid #3498db;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .impact-item {
+            margin: 10px 0;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #2ecc71;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .impact-item.warning {
+            border-left-color: #f39c12;
+            background: #fff3cd;
+        }
+        
+        .impact-item.critical {
+            border-left-color: #e74c3c;
+            background: #f8d7da;
+        }
+        
+        .impact-item.info {
+            border-left-color: #17a2b8;
+            background: #d1ecf1;
+        }
+        
+        .impact-details {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #555;
+        }
+        
+        .affected-policies {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 6px;
+            margin: 8px 0;
+        }
+        
+        .policy-item {
+            margin: 5px 0;
+            padding: 6px 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 3px solid #6c757d;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .policy-item.route-map {
+            border-left-color: #007bff;
+        }
+        
+        .policy-item.community {
+            border-left-color: #28a745;
+        }
+        
+        .policy-item.prefix-list {
+            border-left-color: #ffc107;
+        }
+        
+        .policy-item.access-list {
+            border-left-color: #dc3545;
+        }
+        
+        .path-analysis {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(46, 204, 113, 0.1);
+            border-radius: 10px;
+            border-left: 4px solid #2ecc71;
+        }
+        
+        .path-item {
+            margin: 10px 0;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .path-flow {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+        }
+        
+        .path-hop {
+            padding: 6px 12px;
+            background: #e9ecef;
+            border-radius: 20px;
+            margin: 0 5px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .path-hop.impacted {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .path-arrow {
+            margin: 0 5px;
+            color: #6c757d;
+        }
+        
+        .simulation-controls {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        
+        .node {
+            fill: #3498db;
+            stroke: #2980b9;
+            stroke-width: 2;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .node:hover {
+            fill: #2980b9;
+            stroke: #1abc9c;
+            stroke-width: 3;
+        }
+        
+        .node.router {
+            fill: #e74c3c;
+            stroke: #c0392b;
+        }
+        
+        .node.firewall {
+            fill: #f39c12;
+            stroke: #e67e22;
+        }
+        
+        .node.switch {
+            fill: #9b59b6;
+            stroke: #8e44ad;
+        }
+        
+        .node.critical {
+            fill: #e74c3c;
+            stroke: #c0392b;
+            stroke-width: 4;
+            animation: pulse 2s infinite;
+        }
+        
+        .node.impacted {
+            fill: #f39c12;
+            stroke: #e67e22;
+            stroke-width: 3;
+            animation: glow 2s infinite;
+        }
+        
+        .link {
+            stroke: #95a5a6;
+            stroke-width: 2;
+            fill: none;
+            transition: all 0.3s;
+        }
+        
+        .link.active {
+            stroke: #2ecc71;
+            stroke-width: 4;
+            animation: flow 2s linear infinite;
+        }
+        
+        .link.impacted {
+            stroke: #e74c3c;
+            stroke-width: 3;
+            stroke-dasharray: 5,5;
+            animation: dash 1s linear infinite;
+        }
+        
+        .link.potential-impact {
+            stroke: #f39c12;
+            stroke-width: 3;
+            stroke-dasharray: 10,5;
+        }
+        
+        .node-label {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            text-anchor: middle;
+            pointer-events: none;
+            fill: #2c3e50;
+        }
+        
+        .link-label {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 10px;
+            fill: #7f8c8d;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 11px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        
+        .legend-color {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 1px solid #ddd;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+        
+        .tab {
+            padding: 12px 20px;
+            background: #ecf0f1;
+            border: none;
+            cursor: pointer;
+            margin-right: 2px;
+            border-radius: 8px 8px 0 0;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        
+        .tab.active {
+            background: #3498db;
+            color: white;
+            transform: translateY(-2px);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s;
+        }
+        
+        .notification.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .notification.success {
+            background: #27ae60;
+        }
+        
+        .notification.warning {
+            background: #f39c12;
+        }
+        
+        .notification.error {
+            background: #e74c3c;
+        }
+        
+        .notification.info {
+            background: #3498db;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        @keyframes glow {
+            0%, 100% { filter: drop-shadow(0 0 5px rgba(243, 156, 18, 0.5)); }
+            50% { filter: drop-shadow(0 0 15px rgba(243, 156, 18, 0.8)); }
+        }
+        
+        @keyframes flow {
+            0% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 20; }
+        }
+        
+        @keyframes dash {
+            0% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 10; }
+        }
+        
+        .config-diff {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .diff-added {
+            background: #d4edda;
+            color: #155724;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .diff-removed {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 2px 4px;
+            border-radius: 3px;
+            text-decoration: line-through;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #ecf0f1;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 Advanced Network Configuration Impact Analyzer</h1>
+            <p>Multi-Device Configuration Analysis with Real-time Impact Visualization and Hop-by-Hop Flow Simulation</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="config-panel">
+                <div class="section-title">Configuration Management</div>
+                
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('upload')">Upload Configs</button>
+                    <button class="tab" onclick="switchTab('changes')">New Changes</button>
+                    <button class="tab" onclick="switchTab('analysis')">Impact Analysis</button>
+                    <button class="tab" onclick="switchTab('simulation')">Flow Simulation</button>
+                </div>
+                
+                <div id="upload-tab" class="tab-content active">
+                    <div class="file-upload-area" onclick="document.getElementById('file-input').click()">
+                        <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                        <div style="font-size: 16px; margin-bottom: 5px;">Upload Configuration Files</div>
+                        <div style="font-size: 12px; color: #7f8c8d;">Drag & drop files here or click to browse</div>
+                        <div style="font-size: 11px; color: #95a5a6; margin-top: 5px;">Supports: .txt, .cfg, .conf (Cisco & Juniper configs)</div>
+                    </div>
+                    
+                    <input type="file" id="file-input" class="file-input" multiple accept=".txt,.cfg,.conf" onchange="handleFileUpload(event)">
+                    
+                    <div class="device-summary">
+                        <div class="device-count">
+                            <div class="count-item">
+                                <div class="count-number" id="cisco-count">0</div>
+                                <div class="count-label">Cisco Devices</div>
+                            </div>
+                            <div class="count-item">
+                                <div class="count-number" id="juniper-count">0</div>
+                                <div class="count-label">Juniper Devices</div>
+                            </div>
+                            <div class="count-item">
+                                <div class="count-number" id="total-count">0</div>
+                                <div class="count-label">Total Devices</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="uploaded-files" id="uploaded-files">
+                        <!-- Uploaded files will be displayed here -->
+                    </div>
+                    
+                    <div class="simulation-controls">
+                        <button class="btn btn-success" onclick="parseAllConfigurations()">Parse All Configs</button>
+                        <button class="btn btn-warning" onclick="validateConfigurations()">Validate Configs</button>
+                        <button class="btn btn-danger" onclick="clearAllFiles()">Clear All</button>
+                    </div>
+                </div>
+                
+                <div id="changes-tab" class="tab-content">
+                    <div class="config-input">
+                        <label>Search Devices:</label>
+                        <input type="text" class="search-box" id="device-search" placeholder="Search devices by name, type, or IP..." oninput="filterDevices()">
+                    </div>
+                    
+                    <div class="config-input">
+                        <label>Target Device:</label>
+                        <select id="target-device" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px;">
+                            <option value="">Select a device...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="config-input">
+                        <label>Configuration Changes:</label>
+                        <textarea id="new-config" placeholder="Enter new configuration changes...
+router bgp 65001
+ neighbor 192.168.1.2 remote-as 65003
+ neighbor 192.168.1.2 route-map OUTBOUND out
+ network 172.16.0.0 mask 255.240.0.0
+!
+route-map OUTBOUND permit 10
+ match ip address prefix-list CUSTOMER-PREFIXES
+ set as-path prepend 65001 65001
+ set community 65001:100
+!
+ip prefix-list CUSTOMER-PREFIXES seq 5 permit 172.16.0.0/12
+ip prefix-list CUSTOMER-PREFIXES seq 10 permit 192.168.0.0/16
+!
+ip access-list extended MANAGEMENT-ACCESS
+ permit tcp 10.0.0.0 0.255.255.255 any eq 22
+ permit tcp 10.0.0.0 0.255.255.255 any eq 443
+ deny ip any any log"></textarea>
+                    </div>
+                    
+                    <div class="simulation-controls">
+                        <button class="btn btn-success" onclick="analyzeConfigurationImpact()">Analyze Impact</button>
+                        <button class="btn" onclick="previewConfiguration()">Preview Changes</button>
+                        <button class="btn btn-warning" onclick="simulateChanges()">Simulate Changes</button>
+                    </div>
+                    
+                    <div id="config-preview" class="config-diff" style="display: none;"></div>
+                </div>
+                
+                <div id="analysis-tab" class="tab-content">
+                    <div class="config-input">
+                        <label>Analysis Progress:</label>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="analysis-progress"></div>
+                        </div>
+                    </div>
+                    
+                    <div id="impact-results" class="impact-analysis">
+                        <h3>📊 Configuration Impact Analysis</h3>
+                        <p>Upload configurations and analyze changes to see detailed impact on network policies and routing.</p>
+                    </div>
+                    
+                    <div id="policy-impacts" class="impact-analysis">
+                        <h3>🛡️ Policy Impact Details</h3>
+                        <p>Detailed analysis of route-maps, community lists, prefix lists, and ACL impacts will be shown here.</p>
+                    </div>
+                </div>
+                
+                <div id="simulation-tab" class="tab-content">
+                    <div class="config-input">
+                        <label>Source IP/Network:</label>
+                        <input type="text" id="source-ip" placeholder="e.g., 192.168.1.0/24" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px;">
+                    </div>
+                    
+                    <div class="config-input">
+                        <label>Destination IP/Network:</label>
+                        <input type="text" id="destination-ip" placeholder="e.g., 10.0.0.0/8" style="width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px;">
+                    </div>
+                    
+                    <div class="simulation-controls">
+                        <button class="btn btn-success" onclick="simulateTrafficFlow()">Simulate Traffic Flow</button>
+                        <button class="btn" onclick="showPathAnalysis()">Show Path Analysis</button>
+                        <button class="btn btn-warning" onclick="compareBeforeAfter()">Compare Before/After</button>
+                    </div>
+                    
+                    <div id="path-analysis" class="path-analysis">
+                        <h3>🔍 Hop-by-Hop Path Analysis</h3>
+                        <p>Traffic flow simulation and path analysis will be displayed here.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="visualization-panel">
+                <div class="section-title">Network Topology Visualization</div>
+                
+                <div class="network-topology">
+                    <svg id="network-svg" width="100%" height="100%"></svg>
+                    <div class="tooltip" id="tooltip"></div>
+                    
+                    <div class="legend">
+                        <div style="font-weight: bold; margin-bottom: 8px;">Legend</div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #3498db;"></div>
+                            <span>Switch/Hub</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e74c3c;"></div>
+                            <span>Router</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #f39c12;"></div>
+                            <span>Firewall</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #9b59b6;"></div>
+                            <span>Switch</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #2ecc71; animation: pulse 2s infinite;"></div>
+                            <span>Active Path</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #f39c12; animation: glow 2s infinite;"></div>
+                            <span>Impacted</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e74c3c; animation: pulse 2s infinite;"></div>
+                            <span>Critical</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="simulation-controls">
+                    <button class="btn" onclick="zoomToFit()">Zoom to Fit</button>
+                    <button class="btn" onclick="resetVisualization()">Reset View</button>
+                    <button class="btn btn-success" onclick="exportTopology()">Export Topology</button>
+                    <button class="btn btn-warning" onclick="generateReport()">Generate Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="notification" id="notification"></div>
+
+    <script>
+        // Global variables
+        let uploadedConfigs = [];
+        let networkTopology = {
+            nodes: [],
