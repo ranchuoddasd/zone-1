@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Configuration Impact Analyzer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header p {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            height: calc(100vh - 200px);
+        }
+        
+        .config-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+        }
+        
+        .visualization-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+        
+        .section-title {
+            font-size: 1.4em;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        
+        .config-input {
+            margin-bottom: 20px;
+        }
+        
+        .config-input label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .config-input textarea {
+            width: 100%;
+            height: 120px;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        
+        .config-input textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin: 5px;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.6);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+        }
+        
+        .btn-danger:hover {
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.6);
+        }
+        
+        .network-topology {
+            width: 100%;
+            height: 400px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .impact-analysis {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(52, 152, 219, 0.1);
+            border-radius: 10px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .impact-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #2ecc71;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .impact-item.warning {
+            border-left-color: #f39c12;
+            background: #fff3cd;
+        }
+        
+        .impact-item.critical {
+            border-left-color: #e74c3c;
+            background: #f8d7da;
+        }
+        
+        .path-analysis {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(46, 204, 113, 0.1);
+            border-radius: 10px;
+            border-left: 4px solid #2ecc71;
+        }
+        
+        .node {
+            fill: #3498db;
+            stroke: #2980b9;
+            stroke-width: 2;
+            cursor: pointer;
+        }
+        
+        .node:hover {
+            fill: #2980b9;
+            stroke: #1abc9c;
+        }
+        
+        .node.router {
+            fill: #e74c3c;
+            stroke: #c0392b;
+        }
+        
+        .node.firewall {
+            fill: #f39c12;
+            stroke: #e67e22;
+        }
+        
+        .node.critical {
+            fill: #e74c3c;
+            stroke: #c0392b;
+            stroke-width: 4;
+            animation: pulse 2s infinite;
+        }
+        
+        .link {
+            stroke: #95a5a6;
+            stroke-width: 2;
+            fill: none;
+        }
+        
+        .link.active {
+            stroke: #2ecc71;
+            stroke-width: 4;
+            animation: flow 2s linear infinite;
+        }
+        
+        .link.impacted {
+            stroke: #e74c3c;
+            stroke-width: 3;
+            stroke-dasharray: 5,5;
+        }
+        
+        .node-label {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        
+        .link-label {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 10px;
+            fill: #7f8c8d;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+        
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 3px 0;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        @keyframes flow {
+            0% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 20; }
+        }
+        
+        .config-preview {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            background: #ecf0f1;
+            border: none;
+            cursor: pointer;
+            margin-right: 5px;
+            border-radius: 8px 8px 0 0;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            background: #3498db;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 Network Configuration Impact Analyzer</h1>
+            <p>Advanced Network Modeling with Hop-by-Hop Analysis and Real-time Impact Visualization</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="config-panel">
+                <div class="section-title">Configuration Management</div>
+                
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('existing')">Existing Configs</button>
+                    <button class="tab" onclick="switchTab('new')">New Changes</button>
+                    <button class="tab" onclick="switchTab('analysis')">Impact Analysis</button>
+                </div>
+                
+                <div id="existing-tab" class="tab-content active">
+                    <div class="config-input">
+                        <label>Cisco Router Configuration:</label>
+                        <textarea id="cisco-config" placeholder="Enter Cisco router configuration...
+router bgp 65001
+ neighbor 192.168.1.1 remote-as 65002
+ network 10.0.0.0 mask 255.0.0.0
+ route-map INBOUND in
+!
+route-map INBOUND permit 10
+ match ip address 100
+ set local-preference 200
+!
+access-list 100 permit ip 10.0.0.0 0.255.255.255 any"></textarea>
+                    </div>
+                    
+                    <div class="config-input">
+                        <label>Juniper SRX Configuration:</label>
+                        <textarea id="juniper-config" placeholder="Enter Juniper SRX configuration...
+security {
+    policies {
+        from-zone trust to-zone untrust {
+            policy allow-all {
+                match {
+                    source-address any;
+                    destination-address any;
+                    application any;
+                }
+                then {
+                    permit;
+                }
+            }
+        }
+    }
+}
+routing-instances {
+    VRF-A {
+        instance-type vrf;
+        interface ge-0/0/1.0;
+        route-distinguisher 65001:100;
+        vrf-import IMPORT-VRF-A;
+        vrf-export EXPORT-VRF-A;
+    }
+}"></textarea>
+                    </div>
+                    
+                    <button class="btn" onclick="loadConfigurations()">Load Configurations</button>
+                    <button class="btn btn-danger" onclick="clearConfigurations()">Clear All</button>
+                </div>
+                
+                <div id="new-tab" class="tab-content">
+                    <div class="config-input">
+                        <label>New Configuration Changes:</label>
+                        <textarea id="new-config" placeholder="Enter new configuration changes...
+router bgp 65001
+ neighbor 192.168.1.2 remote-as 65003
+ network 172.16.0.0 mask 255.240.0.0
+ route-map OUTBOUND out
+!
+route-map OUTBOUND permit 10
+ match ip address 101
+ set as-path prepend 65001 65001
+!
+access-list 101 permit ip 172.16.0.0 0.15.255.255 any"></textarea>
+                    </div>
+                    
+                    <button class="btn" onclick="analyzeImpact()">Analyze Impact</button>
+                    <button class="btn" onclick="previewConfiguration()">Preview Config</button>
+                    
+                    <div id="config-preview" class="config-preview" style="display: none;"></div>
+                </div>
+                
+                <div id="analysis-tab" class="tab-content">
+                    <div id="impact-results" class="impact-analysis">
+                        <h3>Configuration Impact Analysis</h3>
+                        <p>Load configurations and analyze changes to see impact on network topology and routing.</p>
+                    </div>
+                    
+                    <div id="path-analysis" class="path-analysis">
+                        <h3>Path Analysis</h3>
+                        <p>Hop-by-hop analysis will be displayed here after impact analysis.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="visualization-panel">
+                <div class="section-title">Network Topology Visualization</div>
+                
+                <div class="network-topology">
+                    <svg id="network-svg" width="100%" height="100%"></svg>
+                    <div class="tooltip" id="tooltip"></div>
+                    
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #3498db;"></div>
+                            <span>Switch/Hub</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e74c3c;"></div>
+                            <span>Router</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #f39c12;"></div>
+                            <span>Firewall</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #2ecc71;"></div>
+                            <span>Active Path</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background: #e74c3c;"></div>
+                            <span>Impacted</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button class="btn" onclick="simulateTraffic()">Simulate Traffic Flow</button>
+                    <button class="btn" onclick="showPathAnalysis()">Show Path Analysis</button>
+                    <button class="btn" onclick="exportResults()">Export Results</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Network topology data
+        let networkData = {
+            nodes: [
+                { id: 'R1', type: 'router', x: 100, y: 100, status: 'active' },
+                { id: 'R2', type: 'router', x: 300, y: 100, status: 'active' },
+                { id: 'R3', type: 'router', x: 500, y: 100, status: 'active' },
+                { id: 'SRX1', type: 'firewall', x: 200, y: 200, status: 'active' },
+                { id: 'SRX2', type: 'firewall', x: 400, y: 200, status: 'active' },
+                { id: 'SW1', type: 'switch', x: 300, y: 300, status: 'active' }
+            ],
+            links: [
+                { source: 'R1', target: 'R2', type: 'ethernet', latency: '5ms', status: 'active' },
+                { source: 'R2', target: 'R3', type: 'ethernet', latency: '3ms', status: 'active' },
+                { source: 'R1', target: 'SRX1', type: 'ethernet', latency: '2ms', status: 'active' },
+                { source: 'R2', target: 'SRX1', type: 'ethernet', latency: '4ms', status: 'active' },
+                { source: 'R3', target: 'SRX2', type: 'ethernet', latency: '6ms', status: 'active' },
+                { source: 'SRX1', target: 'SW1', type: 'ethernet', latency: '1ms', status: 'active' },
+                { source: 'SRX2', target: 'SW1', type: 'ethernet', latency: '2ms', status: 'active' }
+            ]
+        };
+
+        let configurations = {
+            cisco: '',
+            juniper: '',
+            newConfig: ''
+        };
+
+        let impactAnalysis = {
+            affectedDevices: [],
+            routingChanges: [],
+            securityImpacts: [],
+            pathChanges: []
+        };
+
+        // Initialize visualization
+        function initializeVisualization() {
+            const svg = d3.select('#network-svg');
+            const width = svg.node().getBoundingClientRect().width;
+            const height = svg.node().getBoundingClientRect().height;
+
+            // Clear existing content
+            svg.selectAll('*').remove();
+
+            // Create links
+            const links = svg.selectAll('.link')
+                .data(networkData.links)
+                .enter()
+                .append('line')
+                .attr('class', d => `link ${d.status}`)
+                .attr('x1', d => {
+                    const source = networkData.nodes.find(n => n.id === d.source);
+                    return source ? source.x : 0;
+                })
+                .attr('y1', d => {
+                    const source = networkData.nodes.find(n => n.id === d.source);
+                    return source ? source.y : 0;
+                })
+                .attr('x2', d => {
+                    const target = networkData.nodes.find(n => n.id === d.target);
+                    return target ? target.x : 0;
+                })
+                .attr('y2', d => {
+                    const target = networkData.nodes.find(n => n.id === d.target);
+                    return target ? target.y : 0;
+                });
+
+            // Create link labels
+            const linkLabels = svg.selectAll('.link-label')
+                .data(networkData.links)
+                .enter()
+                .append('text')
+                .attr('class', 'link-label')
+                .attr('x', d => {
+                    const source = networkData.nodes.find(n => n.id === d.source);
+                    const target = networkData.nodes.find(n => n.id === d.target);
+                    return ((source?.x || 0) + (target?.x || 0)) / 2;
+                })
+                .attr('y', d => {
+                    const source = networkData.nodes.find(n => n.id === d.source);
+                    const target = networkData.nodes.find(n => n.id === d.target);
+                    return ((source?.y || 0) + (target?.y || 0)) / 2 - 5;
+                })
+                .text(d => d.latency);
+
+            // Create nodes
+            const nodes = svg.selectAll('.node')
+                .data(networkData.nodes)
+                .enter()
+                .append('circle')
+                .attr('class', d => `node ${d.type} ${d.status}`)
+                .attr('cx', d => d.x)
+                .attr('cy', d => d.y)
+                .attr('r', 20)
+                .on('mouseover', showTooltip)
+                .on('mouseout', hideTooltip)
+                .on('click', selectNode);
+
+            // Create node labels
+            const nodeLabels = svg.selectAll('.node-label')
+                .data(networkData.nodes)
+                .enter()
+                .append('text')
+                .attr('class', 'node-label')
+                .attr('x', d => d.x)
+                .attr('y', d => d.y + 5)
+                .text(d => d.id);
+        }
+
+        function showTooltip(event, d) {
+            const tooltip = d3.select('#tooltip');
+            const deviceInfo = getDeviceInfo(d);
+            
+            tooltip.style('opacity', 1)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px')
+                .html(`
+                    <strong>${d.id}</strong><br>
+                    Type: ${d.type}<br>
+                    Status: ${d.status}<br>
+                    ${deviceInfo}
+                `);
+        }
+
+        function hideTooltip() {
+            d3.select('#tooltip').style('opacity', 0);
+        }
+
+        function selectNode(event, d) {
+            console.log('Selected node:', d.id);
+            // Add node selection logic here
+        }
+
+        function getDeviceInfo(device) {
+            // Return device-specific information
+            switch (device.type) {
+                case 'router':
+                    return 'BGP AS: 65001<br>Interfaces: 4<br>Routes: 150';
+                case 'firewall':
+                    return 'Security Zones: 3<br>Policies: 25<br>NAT Rules: 10';
+                case 'switch':
+                    return 'VLANs: 5<br>Ports: 24<br>STP: Enabled';
+                default:
+                    return 'Device information not available';
+            }
+        }
+
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab content
+            document.getElementById(tabName + '-tab').classList.add('active');
+            
+            // Add active class to clicked tab
+            event.target.classList.add('active');
+        }
+
+        function loadConfigurations() {
+            configurations.cisco = document.getElementById('cisco-config').value;
+            configurations.juniper = document.getElementById('juniper-config').value;
+            
+            // Parse configurations and update network topology
+            parseConfigurations();
+            updateVisualization();
+            
+            showNotification('Configurations loaded successfully!', 'success');
+        }
+
+        function clearConfigurations() {
+            document.getElementById('cisco-config').value = '';
+            document.getElementById('juniper-config').value = '';
+            document.getElementById('new-config').value = '';
+            
+            configurations = { cisco: '', juniper: '', newConfig: '' };
+            impactAnalysis = { affectedDevices: [], routingChanges: [], securityImpacts: [], pathChanges: [] };
+            
+            // Reset visualization
+            initializeVisualization();
+            
+            showNotification('All configurations cleared!', 'info');
+        }
+
+        function parseConfigurations() {
+            // Parse Cisco configuration
+            if (configurations.cisco) {
+                const bgpMatches = configurations.cisco.match(/router bgp (\d+)/g);
+                const routeMapMatches = configurations.cisco.match(/route-map (\S+)/g);
+                const aclMatches = configurations.cisco.match(/access-list (\d+)/g);
+                
+                console.log('Cisco BGP:', bgpMatches);
+                console.log('Route Maps:', routeMapMatches);
+                console.log('ACLs:', aclMatches);
+            }
+            
+            // Parse Juniper configuration
+            if (configurations.juniper) {
+                const securityMatches = configurations.juniper.match(/security \{[\s\S]*?\}/);
+                const routingMatches = configurations.juniper.match(/routing-instances \{[\s\S]*?\}/);
+                
+                console.log('Juniper Security:', securityMatches);
+                console.log('Routing Instances:', routingMatches);
+            }
+        }
+
+        function analyzeImpact() {
+            configurations.newConfig = document.getElementById('new-config').value;
+            
+            if (!configurations.newConfig) {
+                showNotification('Please enter new configuration changes!', 'warning');
+                return;
+            }
+            
+            // Perform impact analysis
+            performImpactAnalysis();
+            
+            // Switch to analysis tab
+            switchTab('analysis');
+            
+            // Update visualization with impact
+            updateVisualizationWithImpact();
+            
+            showNotification('Impact analysis completed!', 'success');
+        }
+
+        function performImpactAnalysis() {
+            // Simulate impact analysis
+            impactAnalysis = {
+                affectedDevices: ['R1', 'R2', 'SRX1'],
+                routingChanges: [
+                    { device: 'R1', change: 'New BGP neighbor 192.168.1.2 added', impact: 'Medium' },
+                    { device: 'R2', change: 'Route-map OUTBOUND applied', impact: 'High' },
+                    { device: 'SRX1', change: 'Security policy updated', impact: 'Low' }
+                ],
+                securityImpacts: [
+                    { device: 'SRX1', impact: 'New traffic flows allowed from 172.16.0.0/12', severity: 'Medium' }
+                ],
+                pathChanges: [
+                    { from: 'R1', to: 'R3', oldPath: 'R1→R2→R3', newPath: 'R1→R2→SRX1→R3', impact: 'Latency increased by 2ms' }
+                ]
+            };
+            
+            // Update impact analysis display
+            updateImpactDisplay();
+        }
+
+        function updateImpactDisplay() {
+            const impactDiv = document.getElementById('impact-results');
+            const pathDiv = document.getElementById('path-analysis');
+            
+            let impactHTML = '<h3>Configuration Impact Analysis</h3>';
+            
+            // Affected devices
+            impactHTML += '<div class="impact-item">';
+            impactHTML += '<strong>Affected Devices:</strong><br>';
+            impactHTML += impactAnalysis.affectedDevices.map(device => `• ${device}`).join('<br>');
+            impactHTML += '</div>';
+            
+            // Routing changes
+            impactHTML += '<div class="impact-item warning">';
+            impactHTML += '<strong>Routing Changes:</strong><br>';
+            impactAnalysis.routingChanges.forEach(change => {
+                impactHTML += `• ${change.device}: ${change.change} (Impact: ${change.impact})<br>`;
+            });
+            impactHTML += '</div>';
+            
+            // Security impacts
+            if (impactAnalysis.securityImpacts.length > 0) {
+                impactHTML += '<div class="impact-item critical">';
+                impactHTML += '<strong>Security Impacts:</strong><br>';
+                impactAnalysis.securityImpacts.forEach(impact => {
+                    impactHTML += `• ${impact.device}: ${impact.impact} (Severity: ${impact.severity})<br>`;
+                });
+                impactHTML += '</div>';
+            }
+            
+            impactDiv.innerHTML = impactHTML;
+            
+            // Path analysis
+            let pathHTML = '<h3>Path Analysis</h3>';
+            if (impactAnalysis.pathChanges.length > 0) {
+                pathHTML += '<div class="impact-item">';
+                pathHTML += '<strong>Path Changes:</strong><br>';
+                impactAnalysis.pathChanges.forEach(change => {
+                    pathHTML += `• ${change.from} → ${change.to}:<br>`;
+                    pathHTML += `  Old: ${change.oldPath}<br>`;
+                    pathHTML += `  New: ${change.newPath}<br>`;
+                    pathHTML += `  Impact: ${change.impact}<br><br>`;
+                });
+                pathHTML += '</div>';
+            }
+            
+            pathDiv.innerHTML = pathHTML;
+        }
+
+        function previewConfiguration() {
+            const previewDiv = document.getElementById('config-preview');
+            const newConfig = document.getElementById('new-config').value;
+            
+            if (!newConfig) {
+                showNotification('Please enter new configuration changes!', 'warning');
+                return;
+            }
+            
+            // Merge configurations
+            const mergedConfig = mergeConfigurations(configurations.cisco, newConfig);
+            
+            previewDiv.style.display = 'block';
+            previewDiv.innerHTML = `<strong>Merged Configuration Preview:</strong>\n\n${mergedConfig}`;
+            
+            showNotification('Configuration preview generated!', 'success');
+        }
+
+        function mergeConfigurations(existingConfig, newConfig) {
+            // Simple configuration merge logic
+            return `${existingConfig}\n\n! --- New Configuration Changes ---\n${newConfig}`;
+        }
+
+        function updateVisualization() {
+            // Update network topology based on parsed configurations
+            initializeVisualization();
+        }
+
+        function updateVisualizationWithImpact() {
