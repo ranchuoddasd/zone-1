@@ -1,0 +1,856 @@
+import re
+import networkx as nx
+import matplotlib.pyplot as plt
+import json
+import ipaddress
+
+# --- 1. Configuration Parsing Functions (Simplified) ---
+
+def parse_cisco_config(config_text):
+    """
+    Parses a simplified Cisco configuration into a structured dictionary.
+    Very basic and limited to interfaces, BGP, ACLs for this example.
+    """
+    device_config = {
+        "interfaces": {},
+        "bgp": {},
+        "acls": {},
+        "route_maps": {},
+        "prefix_lists": {},
+        "community_lists": {},
+        "raw_config": config_text # Store raw for preview
+    }
+
+    # Interfaces
+    for match in re.finditer(r"interface (\S+)\s+ip address (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", config_text):
+        int_name, ip, mask = match.groups()
+        device_config["interfaces"][int_name] = {"ip": ip, "mask": mask}
+
+    # BGP
+    bgp_match = re.search(r"router bgp (\d+)(.*?)(?=router|\Z)", config_text, re.DOTALL)
+    if bgp_match:
+        asn = bgp_match.group(1)
+        bgp_block = bgp_match.group(2)
+        device_config["bgp"] = {"asn": asn, "neighbors": {}, "networks": []}
+
+        for neighbor_match in re.finditer(r"neighbor (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) remote-as (\d+)", bgp_block):
+            ip, remote_asn = neighbor_match.groups()
+            device_config["bgp"]["neighbors"][ip] = {"remote_as": remote_asn, "route_map_out": None, "route_map_in": None}
+            # Look for route-map on this neighbor
+            neighbor_config_line = re.search(rf"neighbor {re.escape(ip)} .*?route-map (\S+) (in|out)", bgp_block)
+            if neighbor_config_line:
+                rm_name, direction = neighbor_config_line.groups()
+                if direction == "out":
+                    device_config["bgp"]["neighbors"][ip]["route_map_out"] = rm_name
+                else:
+                    device_config["bgp"]["neighbors"][ip]["route_map_in"] = rm_name
+
+        for network_match in re.finditer(r"network (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) mask (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", bgp_block):
+            # Convert mask to prefix length
+            prefix_len = sum(bin(int(x)).count('1') for x in network_match.group(2).split('.'))
+            device_config["bgp"]["networks"].append(f"{network_match.group(1)}/{prefix_len}")
+
+    # ACLs (extended simplified)
+    for acl_match in re.finditer(r"ip access-list extended (\S+)(.*?)(?=ip access-list|interface|router|\Z)", config_text, re.DOTALL):
+        acl_name = acl_match.group(1)
+        acl_rules = []
+        for rule_line in acl_match.group(2).strip().split('\n'):
+            if rule_line.strip():
+                acl_rules.append(rule_line.strip())
+        device_config["acls"][acl_name] = acl_rules
+
+    # Route-maps
+    for rm_match in re.finditer(r"route-map (\S+) (permit|deny) (\d+)(.*?)(?=route-map|interface|router|\Z)", config_text, re.DOTALL):
+        rm_name, action, sequence, rm_block = rm_match.groups()
+        if rm_name not in device_config["route_maps"]:
+            device_config["route_maps"][rm_name] = []
+        rm_statements = {}
+        match_ip_addr = re.search(r"match ip address (prefix-list )?(\S+)", rm_block)
+        if match_ip_addr:
+            rm_statements["match_ip_address"] = match_ip_addr.group(2)
+        set_community = re.search(r"set community (\S+)", rm_block)
+        if set_community:
+            rm_statements["set_community"] = set_community.group(1)
+        device_config["route_maps"][rm_name].append({"sequence": sequence, "action": action, "statements": rm_statements})
+
+    # Prefix-lists
+    for pl_match in re.finditer(r"ip prefix-list (\S+) seq (\d+) (permit|deny) (\S+)", config_text):
+        pl_name, seq, action, prefix = pl_match.groups()
+        if pl_name not in device_config["prefix_lists"]:
+            device_config["prefix_lists"][pl_name] = []
+        device_config["prefix_lists"][pl_name].append({"seq": seq, "action": action, "prefix": prefix})
+
+    # Community-lists (standard)
+    for cl_match in re.finditer(r"ip community-list standard (\S+) (permit|deny) (\S+)", config_text):
+        cl_name, action, community = cl_match.groups()
+        if cl_name not in device_config["community_lists"]:
+            device_config["community_lists"][cl_name] = []
+        device_config["community_lists"][cl_name].append({"action": action, "community": community})
+
+    return device_config
+
+def parse_juniper_config(config_text):
+    """
+    Parses a simplified Juniper SRX configuration.
+    Highly simplified for interfaces and security policies.
+    """
+    device_config = {
+        "interfaces": {},
+        "security_policies": {},
+        "zones": {},
+        "raw_config": config_text
+    }
+
+    # Interfaces (simplified, assuming family inet)
+    for match in re.finditer(r"interface (\S+) \{\s+unit \d+ \{\s+family inet \{\s+address (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d+);", config_text):
+        int_name, ip, prefix_len = match.groups()
+        device_config["interfaces"][int_name] = {"ip": ip, "prefix_len": int(prefix_len)} # Ensure prefix_len is int
+
+    # Security Zones
+    for match in re.finditer(r"security-zone (\S+) \{", config_text):
+        zone_name = match.group(1)
+        device_config["zones"][zone_name] = {} # Further parsing for interfaces, host-inbound-traffic etc. could go here
+
+    # Security Policies (simplified)
+    # This regex is very basic and assumes a direct 'from-zone' to 'to-zone' structure
+    policy_block_matches = re.finditer(r"policy (\S+) \{\s+match \{\s+source-address (\S+);?\s+destination-address (\S+);?\s+application (\S+);?\s*\}\s+then \{\s+permit;?\s*\}\s*\}", config_text)
+    for policy_match in policy_block_matches:
+        policy_name, src_addr, dest_addr, app = policy_match.groups()
+        # Need to find from-zone and to-zone which are usually above the policy block
+        # This is where a more robust hierarchical parser is needed.
+        device_config["security_policies"][policy_name] = {
+            "source_address": src_addr,
+            "destination_address": dest_addr,
+            "application": app,
+            "action": "permit" # Simplified
+        }
+
+    return device_config
+
+def parse_config(device_type, config_text):
+    if device_type.lower() == "cisco":
+        return parse_cisco_config(config_text)
+    elif device_type.lower() == "juniper":
+        return parse_juniper_config(config_text)
+    else:
+        raise ValueError("Unsupported device type. Choose 'cisco' or 'juniper'.")
+
+# --- 2. LLM Integration (Placeholder) ---
+
+def get_llm_impact_analysis(target_device_name, existing_config_parsed, new_config_snippet, all_devices_parsed):
+    """
+    Placeholder for calling an LLM API.
+    In a real scenario, this would involve:
+    1. Authenticating with the LLM service.
+    2. Constructing a detailed prompt with existing_config, new_config, and surrounding_config.
+    3. Sending the request.
+    4. Parsing the LLM's JSON/text response.
+
+    Returns a dictionary of impacts and a summary.
+    """
+    print(f"\n--- Calling LLM for {target_device_name} impact analysis ---")
+    # Simulate LLM processing based on the provided configs
+    impact_report = {
+        "summary": [],
+        "impacted_devices": {}, # This key is used internally in LLM logic
+        "warnings": []
+    }
+
+    target_parsed_config = existing_config_parsed.get(target_device_name, {})
+
+    if "router bgp" in new_config_snippet:
+        impact_report["summary"].append("BGP configuration changes detected.")
+        new_networks_added = re.findall(r"network (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) mask (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", new_config_snippet)
+        if new_networks_added:
+            impact_report["summary"].append(f"New networks advertised: {new_networks_added}. This will affect BGP peers.")
+            for dev_name, dev_config in all_devices_parsed.items():
+                if dev_name == target_device_name:
+                    continue
+                if dev_config.get("bgp"):
+                    for neighbor_ip, neighbor_details in dev_config["bgp"]["neighbors"].items():
+                        # Rough check if neighbor is directly connected to target
+                        is_direct_neighbor = False
+                        for target_int_name, target_int_details in target_parsed_config.get("interfaces", {}).items():
+                             if target_int_details.get("ip") and target_int_details.get("mask"): # Ensure both exist
+                                 try:
+                                     target_network = ipaddress.ip_network(f"{target_int_details['ip']}/{target_int_details['mask']}", strict=False)
+                                     if ipaddress.ip_address(neighbor_ip) in target_network:
+                                         is_direct_neighbor = True
+                                         break
+                                 except ValueError:
+                                     pass # Ignore invalid IP/mask for now
+                             if is_direct_neighbor: break # Found direct neighbor via interface match
+                        if is_direct_neighbor:
+                            impact_report["impacted_devices"].setdefault(dev_name, []).append(f"Will receive new prefixes from {target_device_name}.")
+                            if neighbor_details.get("route_map_in"):
+                                rm_name = neighbor_details["route_map_in"]
+                                rm_details = dev_config["route_maps"].get(rm_name)
+                                if rm_details:
+                                    impact_report["warnings"].append(f"Router {dev_name} has inbound route-map '{rm_name}'. New prefixes from {target_device_name} might be filtered based on this policy.")
+                                    impact_report["impacted_devices"][dev_name].append(f"Check if {new_networks_added} are allowed by its inbound route-map '{rm_name}'.")
+
+
+    if "access-list" in new_config_snippet or "policy" in new_config_snippet:
+        impact_report["summary"].append("ACL/Firewall policy changes detected.")
+        if "deny" in new_config_snippet:
+            impact_report["warnings"].append("New ACL/Policy contains DENY statements. This might block existing traffic flows.")
+
+    # Simulating a more structured LLM response
+    llm_response = {
+        "analysis_summary": impact_report["summary"],
+        "device_impacts": impact_report["impacted_devices"], # This is the key the visualizer expects
+        "potential_warnings": impact_report["warnings"],
+        "visual_hints": []
+    }
+
+    # Example visual hints from LLM
+    if "new networks" in " ".join(impact_report["summary"]):
+        llm_response["visual_hints"].append({"type": "edge_highlight", "from": target_device_name, "to": "neighbors", "label": "New BGP Routes"})
+    if "deny" in " ".join(impact_report["warnings"]):
+        llm_response["visual_hints"].append({"type": "node_warning", "device": target_device_name, "label": "Potential Traffic Blocked"})
+
+    return llm_response
+
+# --- 3. Configuration Manipulation ---
+
+def apply_config_snippet(existing_config_text, new_snippet):
+    """
+    Simple function to merge a new snippet into existing configuration.
+    This is NOT intelligent merging. It's a basic append/replace for specific blocks.
+    For real configs, this requires line-by-line comparison and merge logic.
+    """
+    lines = existing_config_text.splitlines()
+    new_snippet_lines = new_snippet.splitlines()
+    merged_config_lines = list(lines) # Start with all existing lines
+
+    # For BGP, specifically handle adding networks or modifying neighbor lines
+    if "router bgp" in new_snippet:
+        existing_bgp_block_start = -1
+        existing_bgp_block_end = -1
+        in_bgp_block = False
+        for i, line in enumerate(lines):
+            if "router bgp" in line:
+                existing_bgp_block_start = i
+                in_bgp_block = True
+            elif in_bgp_block and (line.strip() == "!" or re.match(r"^\S", line)): # End of block
+                existing_bgp_block_end = i
+                break
+        if in_bgp_block and existing_bgp_block_end == -1: # BGP is last block
+             existing_bgp_block_end = len(lines)
+
+        if existing_bgp_block_start != -1:
+            new_bgp_lines = new_snippet.splitlines()
+            for new_line in new_bgp_lines:
+                new_line_stripped = new_line.strip()
+                if new_line_stripped.startswith("network") or new_line_stripped.startswith("neighbor"):
+                    inserted = False
+                    for i in range(existing_bgp_block_start + 1, existing_bgp_block_end):
+                        if new_line_stripped.startswith("neighbor"):
+                            # Try to replace an existing neighbor line if it matches the IP
+                            match_ip = re.match(r"neighbor (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", new_line_stripped)
+                            if match_ip:
+                                neighbor_ip = match_ip.group(1)
+                                replaced = False
+                                for j in range(existing_bgp_block_start + 1, existing_bgp_block_end):
+                                    if lines[j].strip().startswith(f"neighbor {neighbor_ip}"):
+                                        merged_config_lines[j] = new_line # Replace the line
+                                        replaced = True
+                                        break
+                                if not replaced:
+                                     merged_config_lines.insert(i, new_line) # If not found, insert
+                                inserted = True
+                                break
+                            elif new_line_stripped.startswith("network"):
+                                # Simple append for new network statements within the block
+                                merged_config_lines.insert(existing_bgp_block_end, new_line)
+                                inserted = True
+                                break # Inserted, move to next new_line
+
+                    if not inserted and new_line_stripped: # If no specific insertion point found, append at the end of the block
+                        merged_config_lines.insert(existing_bgp_block_end, new_line)
+                elif new_line_stripped.startswith("route-map") or \
+                     new_line_stripped.startswith("ip community-list") or \
+                     new_line_stripped.startswith("ip prefix-list"):
+                     if new_line not in merged_config_lines:
+                         merged_config_lines.append(new_line)
+                elif new_line_stripped and not new_line_stripped.startswith("router bgp"):
+                    if new_line not in merged_config_lines:
+                        merged_config_lines.append(line) # Should be new_line here
+        else:
+            merged_config_lines.extend(new_snippet_lines)
+    else:
+        for line in new_snippet_lines:
+            if line.strip() and line not in merged_config_lines:
+                merged_config_lines.append(line)
+
+    final_lines = []
+    for line in merged_config_lines:
+        if line.strip() or (final_lines and final_lines[-1].strip()):
+            final_lines.append(line)
+    return "\n".join(final_lines)
+
+# --- Pathfinding Logic (Simplified) ---
+
+def trace_path(source_ip_on_start_device, destination_ip, all_parsed_configs, start_device_name):
+    """
+    Simulates a packet path from a source IP/device to a destination IP.
+    This is highly simplified and does not simulate a full routing table lookup.
+    """
+    path = []
+    current_device_name = start_device_name
+    current_packet_dest = destination_ip
+
+    max_hops = 10 # Prevent infinite loops for bad configs or unknown paths
+    hop_count = 0
+
+    try:
+        dest_ip_obj = ipaddress.ip_address(current_packet_dest)
+    except ValueError:
+        print(f"Invalid destination IP: {current_packet_dest}")
+        return path
+
+    print(f"\n--- Tracing Path from {start_device_name} ({source_ip_on_start_device}) to {destination_ip} ---")
+
+    while current_device_name and hop_count < max_hops:
+        device_config = all_parsed_configs.get(current_device_name)
+        if not device_config:
+            print(f"Path terminated: Device '{current_device_name}' not found in parsed configs.")
+            break
+
+        path_entry = {
+            "device": current_device_name,
+            "out_interface": None,
+            "next_hop_ip": None,
+            "reason": None
+        }
+        path.append(path_entry)
+        print(f"Hop {hop_count + 1}: At device '{current_device_name}', looking for route to '{current_packet_dest}'")
+
+        next_hop_ip = None
+        egress_interface = None
+        routing_reason = None
+        found_route = False
+
+        # 1. Check for Directly Connected
+        for int_name, int_details in device_config["interfaces"].items():
+            if device_config["type"] == "cisco" and int_details.get("ip") and int_details.get("mask"):
+                try:
+                    int_net = ipaddress.ip_network(f"{int_details['ip']}/{int_details['mask']}", strict=False)
+                    if dest_ip_obj in int_net:
+                        next_hop_ip = str(dest_ip_obj) # Destination itself is next hop on directly connected network
+                        egress_interface = int_name
+                        routing_reason = "Directly Connected"
+                        found_route = True
+                        break
+                except ValueError:
+                    pass
+            elif device_config["type"] == "juniper" and int_details.get("ip") and int_details.get("prefix_len"):
+                try:
+                    int_net = ipaddress.ip_network(f"{int_details['ip']}/{int_details['prefix_len']}", strict=False)
+                    if dest_ip_obj in int_net:
+                        next_hop_ip = str(dest_ip_obj)
+                        egress_interface = int_name
+                        routing_reason = "Directly Connected"
+                        found_route = True
+                        break
+                except ValueError:
+                    pass
+        if found_route: pass # If route found, break the outer loop (from 1 to 2)
+
+        # 2. Simulate BGP Lookup (Cisco only in this example)
+        if not found_route and device_config["type"] == "cisco" and device_config.get("bgp") and device_config["bgp"].get("neighbors"):
+            # This is a very simplistic BGP next-hop selection.
+            for advertised_net_str in device_config["bgp"]["networks"]:
+                try:
+                    advertised_net = ipaddress.ip_network(advertised_net_str, strict=False)
+                    if dest_ip_obj in advertised_net:
+                        # Find a BGP neighbor that could be a next-hop for this network.
+                        for neighbor_ip, neighbor_details in device_config["bgp"]["neighbors"].items():
+                            next_hop_ip = neighbor_ip
+                            routing_reason = f"BGP route to {advertised_net_str}"
+                            # Now find egress interface to reach this neighbor_ip
+                            for int_name, int_details in device_config["interfaces"].items():
+                                if int_details.get("ip") and int_details.get("mask"):
+                                    try:
+                                        int_subnet = ipaddress.ip_network(f"{int_details['ip']}/{int_details['mask']}", strict=False)
+                                        if ipaddress.ip_address(next_hop_ip) in int_subnet:
+                                            egress_interface = int_name
+                                            found_route = True
+                                            break
+                                    except ValueError:
+                                        pass
+                                if found_route: break
+                            if found_route: break # Break from neighbor loop
+                    if found_route: break # Break from advertised_net loop
+                except ValueError:
+                    pass # Continue if advertised_net_str is malformed
+
+        # If no route found on current device
+        if not found_route:
+            print(f"Path terminated: No route found from '{current_device_name}' for destination '{current_packet_dest}'.")
+            break
+
+        path_entry["out_interface"] = egress_interface
+        path_entry["next_hop_ip"] = next_hop_ip
+        path_entry["reason"] = routing_reason
+
+        # Find the next device in the path based on the next_hop_ip
+        next_device_candidate = None
+        for other_dev_name, other_config in all_parsed_configs.items():
+            if other_dev_name == current_device_name:
+                continue
+            for int_name, int_details in other_config.get("interfaces", {}).items():
+                if (other_config["type"] == "cisco" and int_details.get("ip") == next_hop_ip) or \
+                   (other_config["type"] == "juniper" and int_details.get("ip") == next_hop_ip):
+                    next_device_candidate = other_dev_name
+                    break
+            if next_device_candidate:
+                break
+
+        if next_device_candidate:
+            print(f"  --> Next Hop: {next_hop_ip} via {egress_interface} to device '{next_device_candidate}'")
+            current_device_name = next_device_candidate
+        else:
+            print(f"Path terminated: Next hop '{next_hop_ip}' from '{current_device_name}' is not an interface on a known device. (Could be an endpoint or outside known network)")
+            break
+
+        hop_count += 1
+    return path
+
+# --- 4. Visualization ---
+
+def visualize_network_impact(all_parsed_configs, impact_report, new_config_target_device, traced_path=None):
+    G = nx.Graph()
+
+    # Define markers for different device types
+    device_markers = {
+        "cisco": "o",   # Circle for Cisco (router)
+        "juniper": "s"  # Square for Juniper (firewall)
+    }
+
+    # Add nodes (devices)
+    for dev_name, config in all_parsed_configs.items():
+        G.add_node(dev_name, type=config["type"])
+
+    # Add edges (connections)
+    for dev_name, config in all_parsed_configs.items():
+        # Cisco BGP peers
+        if config["type"] == "cisco" and config.get("bgp") and config["bgp"].get("neighbors"):
+            for neighbor_ip in config["bgp"]["neighbors"]:
+                for other_dev_name, other_config in all_parsed_configs.items():
+                    if dev_name == other_dev_name:
+                        continue
+                    if other_config.get("interfaces"):
+                        for int_name, int_details in other_config["interfaces"].items():
+                            if int_details.get("ip") == neighbor_ip:
+                                if not G.has_edge(dev_name, other_dev_name):
+                                    G.add_edge(dev_name, other_dev_name, type="BGP Peer")
+                                break
+        # Juniper shared subnets (very basic)
+        elif config["type"] == "juniper" and config.get("interfaces"):
+            for int1_name, int1_details in config["interfaces"].items():
+                ip1 = int1_details.get("ip")
+                prefix_len1 = int1_details.get("prefix_len")
+                if ip1 and prefix_len1:
+                    try:
+                        net1 = ipaddress.ip_network(f"{ip1}/{prefix_len1}", strict=False)
+                        for other_dev_name, other_config in all_parsed_configs.items():
+                            if dev_name == other_dev_name:
+                                continue
+                            if other_config["type"] == "juniper" and other_config.get("interfaces"):
+                                for int2_name, int2_details in other_config["interfaces"].items():
+                                    ip2 = int2_details.get("ip")
+                                    prefix_len2 = int2_details.get("prefix_len")
+                                    if ip2 and prefix_len2:
+                                        try:
+                                            net2 = ipaddress.ip_network(f"{ip2}/{prefix_len2}", strict=False)
+                                            if net1.overlaps(net2) and not G.has_edge(dev_name, other_dev_name):
+                                                G.add_edge(dev_name, other_dev_name, type="Shared Subnet")
+                                        except ValueError:
+                                            pass
+                    except ValueError:
+                        pass
+
+
+    plt.figure(figsize=(16, 12)) # Even larger figure size
+    # Adjust k (optimal distance between nodes) and iterations for better spread
+    pos = nx.spring_layout(G, k=1.0, iterations=100)
+
+    # Use dictionaries to store node attributes before converting to lists for drawing.
+    node_color_map = {}
+    node_label_map = {}
+    node_border_widths = {}
+    node_border_colors = {}
+    node_markers_list = [] # List to hold markers in correct order
+
+    for node in G.nodes():
+        node_label_map[node] = f"{node}\n({all_parsed_configs[node]['type'].upper()})"
+        node_border_widths[node] = 1.0 # Default border width
+        node_border_colors[node] = 'black' # Default border color
+
+        # Set default colors based on impact
+        if node == new_config_target_device:
+            node_color_map[node] = 'red'
+            node_label_map[node] += "\n(Target)"
+        elif node in impact_report["device_impacts"]:
+            node_color_map[node] = 'orange'
+        else:
+            node_color_map[node] = 'skyblue'
+
+        # Set marker based on device type
+        node_markers_list.append(device_markers.get(all_parsed_configs[node]['type'].lower(), 'o'))
+
+
+        # Override colors/borders if part of the traced path
+        if traced_path and any(entry["device"] == node for entry in traced_path):
+            node_border_widths[node] = 5.0 # Thicker border for path nodes
+            node_border_colors[node] = 'darkgreen' # Path border color
+            node_color_map[node] = '#8BFF8B' # Brighter green fill color for path nodes
+            node_label_map[node] += "\n(Path Node)"
+            # For the first node in the path, potentially add source IP label
+            if traced_path[0]["device"] == node:
+                path_source_ip = "N/A"
+                if len(traced_path) > 0 and 'source_ip_on_start_device' in traced_path[0]: # If this was passed
+                     path_source_ip = traced_path[0]['source_ip_on_start_device']
+                # The source_ip_on_start_device is not stored in path entries, need to get from external context
+                # For this example, we assume the first node is the one the user entered.
+                # A better way would be to pass it explicitly to visualize_network_impact if needed here.
+                # For now, let's skip explicit source IP on node unless stored.
+
+    # Convert maps to lists in the order of G.nodes() for drawing functions
+    draw_node_colors = [node_color_map[node] for node in G.nodes()]
+    draw_node_labels = node_label_map # Labels can be passed as a dictionary
+    draw_node_border_widths = [node_border_widths[node] for node in G.nodes()]
+    draw_node_border_colors = [node_border_colors[node] for node in G.nodes()]
+
+
+    nx.draw_networkx_nodes(G, pos, node_color=draw_node_colors, node_size=4000, # Increased node size
+                           linewidths=draw_node_border_widths, edgecolors=draw_node_border_colors,
+                           node_shape='o') # Draw all as circles, then overlay markers for specific types
+
+    # Draw specific markers for device types over the circles
+    # This loop is separated because `node_shape` in draw_networkx_nodes applies to all.
+    # To get different shapes, we draw multiple times, filtering by type.
+    for node_type, marker in device_markers.items():
+        type_nodes = [node for node in G.nodes() if all_parsed_configs[node]['type'].lower() == node_type]
+        if type_nodes:
+            nx.draw_networkx_nodes(G, pos, nodelist=type_nodes, node_color=[node_color_map[n] for n in type_nodes],
+                                   node_size=4000, linewidths=[node_border_widths[n] for n in type_nodes],
+                                   edgecolors=[node_border_colors[n] for n in type_nodes], node_shape=marker)
+
+
+    nx.draw_networkx_labels(G, pos, labels=draw_node_labels, font_size=9, font_weight='bold')
+
+
+    # Draw edges
+    edge_labels = {}
+    edge_colors = ['gray'] * len(G.edges())
+    edge_widths = [1.0] * len(G.edges())
+    edges_list = list(G.edges()) # Get a list to index into
+
+    for i, (u, v) in enumerate(edges_list):
+        # Initial edge label from graph data
+        edge_labels[(u, v)] = G.get_edge_data(u, v).get('type', 'Link')
+
+
+    # Highlight edges in the traced path
+    if traced_path and len(traced_path) > 1:
+        for i in range(len(traced_path) - 1):
+            current_node = traced_path[i]["device"]
+            next_node_in_path = traced_path[i+1]["device"]
+
+            # Find the edge between current_node and next_node_in_path
+            edge_found_idx = -1
+            if (current_node, next_node_in_path) in edges_list:
+                edge_found_idx = edges_list.index((current_node, next_node_in_path))
+            elif (next_node_in_path, current_node) in edges_list: # Check inverse order for undirected graph
+                edge_found_idx = edges_list.index((next_node_in_path, current_node))
+
+            if edge_found_idx != -1:
+                edge_colors[edge_found_idx] = 'green' # Path color
+                edge_widths[edge_found_idx] = 4.0 # Much thicker path
+                # Add hop number and next hop IP as label
+                out_int_label = traced_path[i].get('out_interface', 'N/A')
+                next_hop_label = traced_path[i].get('next_hop_ip', 'N/A')
+                edge_labels[edges_list[edge_found_idx]] = f"Hop {i+1}:\n{next_hop_label}\n(Out: {out_int_label})"
+            else:
+                 print(f"Warning: Path trace indicates a hop from {current_node} to {next_node_in_path}, but no direct edge found in graph.")
+
+
+    nx.draw_networkx_edges(G, pos, edge_color=edge_colors, width=edge_widths)
+    # Draw edge labels with a white background for better readability
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8,
+                                 bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', boxstyle='round,pad=0.2'))
+
+
+    # Add text annotations for warnings/impact on nodes
+    for node, impacts in impact_report["device_impacts"].items():
+        if node != new_config_target_device:
+            x, y = pos[node]
+            filtered_impacts = [imp for imp in impacts if not imp.startswith("Will receive new prefixes from")]
+            if filtered_impacts: # Only add text if there are specific impacts
+                plt.text(x, y + 0.25, "\n".join(filtered_impacts), horizontalalignment='center', fontsize=8, color='darkgreen',
+                         bbox=dict(facecolor='lightgreen', alpha=0.6, boxstyle='round,pad=0.3'), zorder=5) # zorder to bring text forward
+
+    for hint in impact_report.get("visual_hints", []):
+        if hint["type"] == "node_warning":
+            x, y = pos[hint["device"]]
+            plt.text(x, y - 0.25, f"Warning: {hint['label']}", horizontalalignment='center', fontsize=8, color='red', weight='bold',
+                     bbox=dict(facecolor='lightcoral', alpha=0.6, boxstyle='round,pad=0.3'), zorder=5)
+
+
+    # Add a basic legend
+    legend_handles = [
+        plt.Line2D([0], [0], marker='o', color='w', label='Cisco (Router)', markerfacecolor='gray', markersize=10),
+        plt.Line2D([0], [0], marker='s', color='w', label='Juniper (Firewall)', markerfacecolor='gray', markersize=10),
+        plt.Line2D([0], [0], marker='o', color='w', label='Target Device', markerfacecolor='red', markersize=10),
+        plt.Line2D([0], [0], marker='o', color='w', label='Impacted Device', markerfacecolor='orange', markersize=10),
+        plt.Line2D([0], [0], marker='o', color='w', label='Path Node', markerfacecolor='#8BFF8B', markersize=10, markeredgecolor='darkgreen', markeredgewidth=3),
+        plt.Line2D([0], [0], color='green', linewidth=4, label='Traced Path'),
+        plt.Line2D([0], [0], color='gray', linewidth=1, label='Network Link'),
+    ]
+    plt.legend(handles=legend_handles, loc='upper left', bbox_to_anchor=(1, 1), title="Legend", fontsize=9)
+
+
+    plt.title("Network Impact and Path Visualization (SolarWinds-like)", fontsize=14, weight='bold')
+    plt.axis('off')
+    plt.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make room for legend
+    plt.show()
+
+
+# --- Main Execution Flow ---
+
+def run_network_impact_analysis(config_templates, new_config_target_device, new_config_snippet):
+    all_parsed_configs = {}
+
+    print("--- Parsing Existing Configuration Templates ---")
+    for dev_name, dev_type, config_text in config_templates:
+        print(f"Parsing {dev_name} ({dev_type})...")
+        parsed_config = parse_config(dev_type, config_text)
+        parsed_config["type"] = dev_type
+        all_parsed_configs[dev_name] = parsed_config
+
+    print("\n--- Identifying Target Device and Applying New Configuration ---")
+    if new_config_target_device not in all_parsed_configs:
+        print(f"Error: Target device '{new_config_target_device}' not found in provided templates.")
+        return
+
+    original_target_config_text = all_parsed_configs[new_config_target_device]["raw_config"]
+    preview_config_text = apply_config_snippet(original_target_config_text, new_config_snippet)
+
+    print(f"\n--- Preview of {new_config_target_device} Configuration After Changes ---")
+    print("-" * 50)
+    print(preview_config_text)
+    print("-" * 50)
+
+    # Re-parse the target device's config with the new snippet
+    target_device_original_type = all_parsed_configs[new_config_target_device]["type"]
+    all_parsed_configs[new_config_target_device] = parse_config(
+        target_device_original_type, preview_config_text
+    )
+    all_parsed_configs[new_config_target_device]["type"] = target_device_original_type
+
+
+    print("\n--- Performing Impact Analysis with LLM ---")
+    impact_report = get_llm_impact_analysis(
+        new_config_target_device,
+        all_parsed_configs,
+        new_config_snippet,
+        all_devices_parsed=all_parsed_configs
+    )
+
+    print("\n--- Impact Analysis Report ---")
+    print("Summary:")
+    for item in impact_report["analysis_summary"]:
+        print(f"- {item}")
+    print("\nImpacted Devices:")
+    if not impact_report["device_impacts"]:
+        print("  No other devices directly identified as impacted by LLM.")
+    for device, impacts in impact_report["device_impacts"].items():
+        print(f"  {device}:")
+        for impact in impacts:
+            print(f"    - {impact}")
+    print("\nPotential Warnings:")
+    if not impact_report["potential_warnings"]:
+        print("  No specific warnings identified.")
+    for warning in impact_report["potential_warnings"]:
+        print(f"- {warning}")
+
+    # --- Path Tracing Input and Execution ---
+    print("\n--- Network Path Tracing ---")
+    path_source_ip = input("Enter the source IP address for path tracing (e.g., 1.1.1.1): ")
+    path_destination_ip = input("Enter the destination IP address for path tracing (e.g., 172.16.2.50): ")
+    path_start_device = input(f"Enter the starting device for path tracing (e.g., {new_config_target_device}): ")
+
+    # Store source IP for potential display on the starting node if needed later
+    traced_path_with_source_ip = None
+    if path_start_device not in all_parsed_configs:
+        print(f"Warning: Starting device '{path_start_device}' not found for path tracing. Skipping path visualization.")
+        traced_path_with_source_ip = None
+    else:
+        traced_path = trace_path(path_source_ip, path_destination_ip, all_parsed_configs, path_start_device)
+        # Add the source IP to the first path entry for potential visualization
+        if traced_path:
+            traced_path[0]['source_ip_on_start_device'] = path_source_ip
+            traced_path_with_source_ip = traced_path
+
+        print("\n--- Traced Path Details ---")
+        if traced_path:
+            for i, hop in enumerate(traced_path):
+                print(f"Hop {i+1}: Device={hop['device']}, Out Interface={hop['out_interface']}, Next Hop IP={hop['next_hop_ip']}, Reason={hop['reason']}")
+            if traced_path and traced_path[-1]["next_hop_ip"] == path_destination_ip:
+                print(f"Path ends at {traced_path[-1]['device']} (Destination {path_destination_ip} reached directly or via last hop).")
+            elif traced_path:
+                 print(f"Path ended at {traced_path[-1]['device']}. Destination {path_destination_ip} not explicitly reached within traced hops.")
+        else:
+            print("No path could be traced.")
+
+
+    print("\n--- Visualizing Network Impact and Path ---")
+    visualize_network_impact(all_parsed_configs, impact_report, new_config_target_device, traced_path_with_source_ip)
+
+
+# --- Example Usage ---
+
+if __name__ == "__main__":
+    sample_config_templates = [
+        ("Router1", "cisco", """
+hostname Router1
+interface GigabitEthernet0/0
+ ip address 10.0.0.1 255.255.255.252
+ description Link to Router2
+!
+interface Loopback0
+ ip address 1.1.1.1 255.255.255.255
+!
+router bgp 65000
+ bgp log-neighbor-changes
+ neighbor 10.0.0.2 remote-as 65001
+ neighbor 10.0.0.2 update-source GigabitEthernet0/0
+ address-family ipv4
+  network 192.168.1.0 mask 255.255.255.0
+  network 172.16.1.0 mask 255.255.255.0
+  neighbor 10.0.0.2 activate
+  neighbor 10.0.0.2 route-map RM_OUT_FILTER out
+!
+ip access-list extended ACL_WEB_ACCESS
+ permit tcp any host 172.16.1.10 eq 80
+ deny ip any any
+!
+route-map RM_OUT_FILTER permit 10
+ match ip address prefix-list PL_LOCAL_PREFIXES
+ set local-preference 150
+!
+ip prefix-list PL_LOCAL_PREFIXES seq 10 permit 192.168.1.0/24
+ip prefix-list PL_LOCAL_PREFIXES seq 20 permit 10.0.0.0/8 le 24
+"""),
+        ("Router2", "cisco", """
+hostname Router2
+interface GigabitEthernet0/0
+ ip address 10.0.0.2 255.255.255.252
+ description Link to Router1
+!
+interface GigabitEthernet0/1
+ ip address 10.0.0.5 255.255.255.252
+ description Link to Firewall1
+!
+router bgp 65001
+ bgp log-neighbor-changes
+ neighbor 10.0.0.1 remote-as 65000
+ neighbor 10.0.0.1 update-source GigabitEthernet0/0
+ neighbor 10.0.0.6 remote-as 65002
+ neighbor 10.0.0.6 update-source GigabitEthernet0/1
+ address-family ipv4
+  network 172.16.20.0 mask 255.255.255.0  # Router2 also advertises a network
+  neighbor 10.0.0.1 activate
+  neighbor 10.0.0.1 route-map RM_IN_FILTER in
+  neighbor 10.0.0.6 activate
+!
+route-map RM_IN_FILTER permit 10
+ match ip address prefix-list PL_ACCEPT_ALL
+!
+ip prefix-list PL_ACCEPT_ALL seq 5 permit 0.0.0.0/0 le 32
+!
+ip community-list standard CL_NO_EXPORT permit 65000:666
+"""),
+        ("Firewall1", "juniper", """
+system {
+    host-name Firewall1;
+}
+interfaces {
+    ge-0/0/0 {
+        unit 0 {
+            family inet {
+                address 10.0.0.6/30;
+            }
+        }
+    }
+    ge-0/0/1 {
+        unit 0 {
+            family inet {
+                address 172.16.10.1/24;
+            }
+        }
+    }
+}
+security {
+    zones {
+        security-zone trust {
+            host-inbound-traffic {
+                system-services { all; }
+                protocols { all; }
+            }
+            interfaces {
+                ge-0/0/1.0;
+            }
+        }
+        security-zone untrust {
+            interfaces {
+                ge-0/0/0.0;
+            }
+        }
+    }
+    policies {
+        from-zone trust to-zone untrust {
+            policy allow-trust-to-untrust {
+                match {
+                    source-address any;
+                    destination-address any;
+                    application any;
+                }
+                then {
+                    permit;
+                }
+            }
+        }
+        from-zone untrust to-zone trust {
+            policy deny-all-untrust-to-trust {
+                match {
+                    source-address any;
+                    destination-address any;
+                    application any;
+                }
+                then {
+                    deny;
+                }
+            }
+        }
+    }
+}
+""")
+    ]
+
+    target_device = "Router1"
+    new_config = """
+router bgp 65000
+ address-family ipv4
+  network 172.16.2.0 mask 255.255.255.0
+  neighbor 10.0.0.2 route-map RM_NEW_OUT out
+!
+route-map RM_NEW_OUT permit 10
+ set community 65000:100
+!
+ip community-list standard CL_NEW_COMMUNITY permit 65000:100
+"""
+
+    run_network_impact_analysis(sample_config_templates, target_device, new_config)
