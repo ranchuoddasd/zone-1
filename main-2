@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Cloud Maintenance Automation System - Preview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .card h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+
+        .control-panel {
+            grid-column: 1 / -1;
+            background: rgba(255,255,255,0.95);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(45deg, #fa709a, #fee140);
+            color: white;
+        }
+
+        .btn-success {
+            background: linear-gradient(45deg, #a8edea, #fed6e3);
+            color: #2d3748;
+        }
+
+        .btn-warning {
+            background: linear-gradient(45deg, #ff9a9e, #fecfef);
+            color: #2d3748;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .status-item.error {
+            border-left-color: #fc8181;
+        }
+
+        .status-item.warning {
+            border-left-color: #f6ad55;
+        }
+
+        .status-item.success {
+            border-left-color: #68d391;
+        }
+
+        .log-container {
+            background: #1a202c;
+            color: #68d391;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-entry.info {
+            color: #63b3ed;
+        }
+
+        .log-entry.warning {
+            color: #f6ad55;
+        }
+
+        .log-entry.error {
+            color: #fc8181;
+        }
+
+        .event-item {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #4facfe;
+            position: relative;
+        }
+
+        .event-item h4 {
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+
+        .event-meta {
+            display: flex;
+            gap: 20px;
+            font-size: 0.9em;
+            color: #718096;
+            margin-bottom: 10px;
+        }
+
+        .event-description {
+            color: #4a5568;
+            line-height: 1.5;
+        }
+
+        .provider-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4facfe;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .provider-badge.aws {
+            background: #ff9900;
+        }
+
+        .provider-badge.gcp {
+            background: #4285f4;
+        }
+
+        .provider-badge.azure {
+            background: #0078d4;
+        }
+
+        .provider-badge.oracle {
+            background: #f80000;
+        }
+
+        .ticket-item {
+            background: #f0fff4;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #68d391;
+        }
+
+        .ticket-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .ticket-number {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 1.1em;
+        }
+
+        .ticket-status {
+            background: #68d391;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .connectivity-item {
+            background: #f7fafc;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .connectivity-status {
+            display: flex;
+            gap: 10px;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .status-badge.up {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .status-badge.down {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .status-badge.degraded {
+            background: #feebc8;
+            color: #744210;
+        }
+
+        .notification-preview {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            margin-top: 15px;
+        }
+
+        .notification-header {
+            background: #4facfe;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 6px 6px 0 0;
+            margin: -20px -20px 15px -20px;
+            font-weight: 600;
+        }
+
+        .notification-body {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 12px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: black;
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4facfe;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 Multi-Cloud Maintenance Automation System</h1>
+            <p>Automated maintenance notification and change management for AWS, GCP, Azure & Oracle Cloud</p>
+        </div>
+
+        <div class="dashboard">
+            <div class="card control-panel">
+                <h3>🎛️ Control Panel</h3>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="scanMaintenanceEvents()">
+                        <span id="scan-icon">🔍</span> Scan Maintenance Events
+                    </button>
+                    <button class="btn btn-secondary" onclick="checkConnectivity()">
+                        <span id="connectivity-icon">🌐</span> Check Connectivity
+                    </button>
+                    <button class="btn btn-success" onclick="processTickets()">
+                        <span id="ticket-icon">🎫</span> Process Tickets
+                    </button>
+                    <button class="btn btn-warning" onclick="generateReport()">
+                        <span id="report-icon">📊</span> Generate Report
+                    </button>
+                </div>
+                
+                <div class="status-grid">
+                    <div class="status-item success">
+                        <strong>System Status</strong><br>
+                        <span id="system-status">✅ Online</span>
+                    </div>
+                    <div class="status-item" id="events-status">
+                        <strong>Active Events</strong><br>
+                        <span id="events-count">0 events detected</span>
+                    </div>
+                    <div class="status-item" id="tickets-status">
+                        <strong>Open Tickets</strong><br>
+                        <span id="tickets-count">0 tickets active</span>
+                    </div>
+                    <div class="status-item" id="connectivity-status">
+                        <strong>Connectivity</strong><br>
+                        <span id="connectivity-count">Checking...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📅 Maintenance Events</h3>
+                <div id="maintenance-events">
+                    <p style="color: #718096; text-align: center; padding: 20px;">
+                        Click "Scan Maintenance Events" to check for upcoming maintenance
+                    </p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🎫 Change Tickets</h3>
+                <div id="change-tickets">
+                    <p style="color: #718096; text-align: center; padding: 20px;">
+                        No active change tickets
+                    </p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🔗 Connectivity Status</h3>
+                <div id="connectivity-info">
+                    <p style="color: #718096; text-align: center; padding: 20px;">
+                        Click "Check Connectivity" to verify BGP status
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📝 System Logs</h3>
+            <div class="log-container" id="log-container">
+                <div class="log-entry info">[2024-01-15 10:30:00] INFO: System initialized successfully</div>
+                <div class="log-entry info">[2024-01-15 10:30:01] INFO: Loading configuration...</div>
+                <div class="log-entry info">[2024-01-15 10:30:02] INFO: Cloud provider integrations ready</div>
+                <div class="log-entry info">[2024-01-15 10:30:03] INFO: Waiting for user commands...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for notifications -->
+    <div id="notification-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>📧 Email Notification Preview</h2>
+            <div id="notification-content"></div>
+        </div>
+    </div>
+
+    <script>
+        // Sample data for demonstration
+        const sampleEvents = [
+            {
+                id: 'aws-dx-maint-001',
+                provider: 'AWS',
+                service: 'Direct Connect',
+                description: 'Scheduled maintenance on Direct Connect gateway in us-east-1',
+                startTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+                endTime: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000),
+                region: 'us-east-1',
+                impact: 'Medium'
+            },
+            {
+                id: 'gcp-interconnect-002',
+                provider: 'GCP',
+                service: 'Cloud Interconnect',
+                description: 'Network infrastructure upgrade affecting interconnect connections',
+                startTime: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+                endTime: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000),
+                region: 'us-central1',
+                impact: 'High'
+            },
+            {
+                id: 'azure-expressroute-003',
+                provider: 'Azure',
+                service: 'ExpressRoute',
+                description: 'Routine maintenance on ExpressRoute circuit',
+                startTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                endTime: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 3 * 60 * 60 * 1000),
+                region: 'East US',
+                impact: 'Low'
+            }
+        ];
+
+        const sampleConnectivity = [
+            { id: 'dxvif-12345', provider: 'AWS', type: 'Direct Connect VIF', status: 'UP', bgpStatus: 'UP' },
+            { id: 'interconnect-prod-1', provider: 'GCP', type: 'Cloud Interconnect', status: 'UP', bgpStatus: 'UP' },
+            { id: 'ExpressRoute-Circuit1', provider: 'Azure', type: 'ExpressRoute', status: 'UP', bgpStatus: 'UP' },
+            { id: 'dxvif-67890', provider: 'AWS', type: 'Direct Connect VIF', status: 'DOWN', bgpStatus: 'DOWN' }
+        ];
+
+        let activeTickets = [];
+        let systemLogs = [];
+
+        function addLog(level, message) {
+            const timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            const logEntry = `[${timestamp}] ${level.toUpperCase()}: ${message}`;
+            
+            const logContainer = document.getElementById('log-container');
+            const logElement = document.createElement('div');
+            logElement.className = `log-entry ${level}`;
+            logElement.textContent = logEntry;
+            
+            logContainer.appendChild(logElement);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Keep only last 50 logs
+            if (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function scanMaintenanceEvents() {
+            const scanIcon = document.getElementById('scan-icon');
+            scanIcon.innerHTML = '<div class="loading"></div>';
+            
+            addLog('info', 'Starting maintenance event scan...');
+            
+            setTimeout(() => {
+                addLog('info', 'Checking AWS Health API...');
+                setTimeout(() => {
+                    addLog('info', 'Checking GCP Service Health...');
+                    setTimeout(() => {
+                        addLog('info', 'Checking Azure Service Health...');
+                        setTimeout(() => {
+                            addLog('info', 'Checking Oracle Cloud Health...');
+                            setTimeout(() => {
+                                displayMaintenanceEvents();
+                                scanIcon.innerHTML = '🔍';
+                                addLog('info', `Found ${sampleEvents.length} maintenance events`);
+                            }, 500);
+                        }, 500);
+                    }, 500);
+                }, 500);
+            }, 1000);
+        }
+
+        function displayMaintenanceEvents() {
+            const container = document.getElementById('maintenance-events');
+            container.innerHTML = '';
+            
+            sampleEvents.forEach(event => {
+                const eventDiv = document.createElement('div');
+                eventDiv.className = 'event-item';
+                eventDiv.innerHTML = `
+                    <div class="provider-badge ${event.provider.toLowerCase()}">${event.provider}</div>
+                    <h4>${event.service} Maintenance</h4>
+                    <div class="event-meta">
+                        <span><strong>Start:</strong> ${event.startTime.toLocaleString()}</span>
+                        <span><strong>End:</strong> ${event.endTime.toLocaleString()}</span>
+                        <span><strong>Impact:</strong> ${event.impact}</span>
+                    </div>
+                    <div class="event-description">${event.description}</div>
+                `;
+                container.appendChild(eventDiv);
+            });
+            
+            document.getElementById('events-count').textContent = `${sampleEvents.length} events detected`;
+            document.getElementById('events-status').className = 'status-item warning';
+        }
+
+        function checkConnectivity() {
+            const connectivityIcon = document.getElementById('connectivity-icon');
+            connectivityIcon.innerHTML = '<div class="loading"></div>';
+            
+            addLog('info', 'Checking connectivity status...');
+            
+            setTimeout(() => {
+                displayConnectivityStatus();
+                connectivityIcon.innerHTML = '🌐';
+                addLog('info', 'Connectivity check completed');
+            }, 2000);
+        }
+
+        function displayConnectivityStatus() {
+            const container = document.getElementById('connectivity-info');
+            container.innerHTML = '';
+            
+            sampleConnectivity.forEach(conn => {
+                const connDiv = document.createElement('div');
+                connDiv.className = 'connectivity-item';
+                connDiv.innerHTML = `
+                    <div>
+                        <strong>${conn.provider}</strong> ${conn.type}<br>
+                        <small>${conn.id}</small>
+                    </div>
+                    <div class="connectivity-status">
+                        <span class="status-badge ${conn.status.toLowerCase()}">${conn.status}</span>
+                        <span class="status-badge ${conn.bgpStatus.toLowerCase()}">BGP: ${conn.bgpStatus}</span>
+                    </div>
+                `;
+                container.appendChild(connDiv);
+            });
+            
+            const upCount = sampleConnectivity.filter(c => c.status === 'UP').length;
+            const totalCount = sampleConnectivity.length;
+            document.getElementById('connectivity-count').textContent = `${upCount}/${totalCount} connections UP`;
+            
+            if (upCount === totalCount) {
+                document.getElementById('connectivity-status').className = 'status-item success';
+            } else {
+                document.getElementById('connectivity-status').className = 'status-item error';
+            }
+        }
+
+        function processTickets() {
+            const ticketIcon = document.getElementById('ticket-icon');
+            ticketIcon.innerHTML = '<div class="loading"></div>';
+            
+            addLog('info', 'Processing change tickets...');
+            
+            setTimeout(() => {
+                createSampleTickets();
+                ticketIcon.innerHTML = '🎫';
+                addLog('info', 'Change tickets processed successfully');
+            }, 1500);
+        }
+
+        function createSampleTickets() {
+            activeTickets = sampleEvents.map((event, index) => ({
+                id: `CHG${String(index + 1).padStart(7, '0')}`,
+                number: `CHG${String(index + 1).padStart(7, '0')}`,
+                event: event,
+                status: 'New',
+                createdDate: new Date()
+            }));
+            
+            displayChangeTickets();
+        }
+
+        function displayChangeTickets() {
+            const container = document.getElementById('change-tickets');
+            container.innerHTML = '';
+            
+            activeTickets.forEach(ticket => {
+                const ticketDiv = document.createElement('div');
+                ticketDiv.className = 'ticket-item';
+                ticketDiv.innerHTML = `
+                    <div class="ticket-header">
+                        <span class="ticket-number">${ticket.number}</span>
+                        <span class="ticket-status">${ticket.status}</span>
+                    </div>
+                    <div><strong>Event:</strong> ${ticket.event.provider} ${ticket.event.service}</div>
+                    <div><strong>Created:</strong> ${ticket.createdDate.toLocaleString()}</div>
+                    <div><strong>Maintenance:</strong> ${ticket.event.startTime.toLocaleString()}</div>
+                    <button class="btn btn-primary" onclick="previewNotification('${ticket.id}')" style="margin-top: 10px; padding: 8px 16px; font-size: 12px;">
+                        📧 Preview Email
+                    </button>
+                `;
+                container.appendChild(ticketDiv);
+            });
+            
+            document.getElementById('tickets-count').textContent = `${activeTickets.length} tickets active`;
+            document.getElementById('tickets-status').className = 'status-item warning';
+        }
+
+        function previewNotification(ticketId) {
+            const ticket = activeTickets.find(t => t.id === ticketId);
+            if (!ticket) return;
+            
+            const notificationContent = `From: cloudops@yourcompany.com
+To: stakeholders@yourcompany.com
+Subject: URGENT: Upcoming Maintenance - ${ticket.event.provider} ${ticket.event.service}
+
+Dear Team,
+
+This is an urgent notification regarding upcoming scheduled maintenance that may impact our services.
+
+MAINTENANCE DETAILS:
+==================
+Provider: ${ticket.event.provider}
+Service: ${ticket.event.service}
+Description: ${ticket.event.description}
+Start Time: ${ticket.event.startTime.toLocaleString()} UTC
+End Time: ${ticket.event.endTime.toLocaleString()} UTC
+Duration: ${Math.round((ticket.event.endTime - ticket.event.startTime) / (1000 * 60 * 60))} hours
+Region: ${ticket.event.region}
+Impact Level: ${ticket.event.impact}
+
+CHANGE TICKET INFORMATION:
+========================
+Ticket Number: ${ticket.number}
+Created: ${ticket.createdDate.toLocaleString()} UTC
+
+CURRENT CONNECTIVITY STATUS:
+===========================
+${sampleConnectivity.map(conn => 
+`${conn.provider} ${conn.type} (${conn.id}):
+- Status: ${conn.status}
+- BGP Status: ${conn.bgpStatus}
+- Last Checked: ${new Date().toLocaleString()} UTC`
+).join('\n\n')}
+
+RECOMMENDED ACTIONS:
+==================
+1. Review the maintenance impact on your applications
+2. Ensure monitoring is active during the maintenance window
+3. Prepare rollback procedures if needed
+4. Monitor the change ticket for updates: ${ticket.number}
+
+This notification was generated automatically by the Cloud Maintenance Automation System.
+
+If you have any questions or concerns, please respond to this email or contact the Cloud Operations team.
+
+Best regards,
+Cloud Operations Team`;
+            
+            document.getElementById('notification-content').innerHTML = `
+                <div class="notification-preview">
+                    <div class="notification-header">Pre-Maintenance Notification</div>
+                    <div class="notification-body">${notificationContent}</div>
+                </div>
+            `;
+            
+            document.getElementById('notification-modal').style.display = 'block';
+            addLog('info', `Generated email preview for ticket ${ticket.number}`);
+        }
+
+        function generateReport() {
+            const reportIcon = document.getElementById('report-icon');
+            reportIcon.innerHTML = '<div class="loading"></div>';
+            
+            addLog('info', 'Generating system report...');
+            
+            setTimeout(() => {
+                const report = `
+MAINTENANCE AUTOMATION SYSTEM STATUS REPORT
+==========================================
+Generated: ${new Date().toLocaleString()} UTC
+
+SYSTEM OVERVIEW:
+==============
+- Status: Online
+- Active Events: ${sampleEvents.length}
+- Open Tickets: ${activeTickets.length}
+- Connectivity Status: ${sampleConnectivity.filter(c => c.status === 'UP').length}/${sampleConnectivity.length} UP
+
+ACTIVE MAINTENANCE EVENTS:
+========================
+${sampleEvents.map(event => 
+`- ${event.provider} ${event.service}
+  Event ID: ${event.id}
+  Start: ${event.startTime.toLocaleString()}
+  End: ${event.endTime.toLocaleString()}
+  Impact: ${event.impact}
+  Region: ${event.region}`
+).join('\n\n')}
+
+CONNECTIVITY STATUS:
+==================
+${sampleConnectivity.map(conn => 
+`- ${conn.provider} ${conn.type} (${conn.id}):
+  Status: ${conn.status} | BGP: ${conn.bgpStatus}`
+).join('\n')}
+
+RECOMMENDATIONS:
+==============
+1. Monitor all upcoming maintenance events
+2. Ensure stakeholder notifications are sent
+3. Verify connectivity status before maintenance windows
+4. Prepare rollback procedures for critical services
+`;
+                
+                addLog('info', 'System report generated successfully');
+                addLog('info', 'Report contains system overview and recommendations');
+                
+                // Create downloadable report
+                const blob = new Blob([report], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `maintenance_report_${new Date().toISOString().slice(0, 10)}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                reportIcon.innerHTML = '📊';
+            }, 2000);
+        }
+
+        function closeModal() {
+            document.getElementById('notification-modal').style.display = 'none';
+        }
+
+        // Initialize the system
+        window.onload = function() {
+            addLog('info', 'Multi-Cloud Maintenance Automation System loaded');
+            addLog('info', 'Ready for operations');
+            
+            // Auto-check connectivity on load
+            setTimeout(() => {
+                checkConnectivity();
+            }, 1000);
+        };
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('notification-modal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        };
+    </script>
+</body>
+</html>
