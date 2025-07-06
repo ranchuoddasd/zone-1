@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Cloud Maintenance Automation System - Preview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .card-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-size: 1.2em;
+            color: white;
+        }
+
+        .aws-icon { background: #FF9900; }
+        .gcp-icon { background: #4285F4; }
+        .azure-icon { background: #0078D4; }
+        .oracle-icon { background: #F80000; }
+        .ticket-icon { background: #28a745; }
+        .email-icon { background: #6c757d; }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #007bff;
+        }
+
+        .status-item.warning {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .status-item.error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .status-item.success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .status-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+
+        .maintenance-event {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .maintenance-event.critical {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+        }
+
+        .maintenance-event::before {
+            content: "⚠️";
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 1.5em;
+        }
+
+        .maintenance-event.critical::before {
+            content: "🚨";
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .event-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #856404;
+        }
+
+        .critical .event-title {
+            color: #721c24;
+        }
+
+        .event-time {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .event-description {
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .event-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            font-size: 0.9em;
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .detail-label {
+            color: #666;
+        }
+
+        .detail-value {
+            font-weight: bold;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .log-container {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-timestamp {
+            color: #888;
+        }
+
+        .log-info {
+            color: #00ff00;
+        }
+
+        .log-warning {
+            color: #ffff00;
+        }
+
+        .log-error {
+            color: #ff0000;
+        }
+
+        .connectivity-status {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .connectivity-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #007bff;
+        }
+
+        .connectivity-item.up {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .connectivity-item.down {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .connectivity-item.degraded {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .connectivity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .connectivity-name {
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .connectivity-status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .status-up {
+            background: #28a745;
+            color: white;
+        }
+
+        .status-down {
+            background: #dc3545;
+            color: white;
+        }
+
+        .status-degraded {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: black;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #28a745);
+            transition: width 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Multi-Cloud Maintenance Automation System</h1>
+            <p>Automated maintenance notification and change management for AWS, GCP, Azure, and Oracle Cloud</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" onclick="scanMaintenanceEvents()">🔍 Scan for Maintenance Events</button>
+            <button class="btn btn-success" onclick="checkConnectivity()">🔗 Check Connectivity Status</button>
+            <button class="btn btn-warning" onclick="simulateMaintenanceEvent()">⚠️ Simulate Maintenance Event</button>
+            <button class="btn btn-danger" onclick="emergencyNotification()">🚨 Emergency Notification</button>
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon ticket-icon">🎫</div>
+                    <h3>Active Change Tickets</h3>
+                </div>
+                <div class="status-grid">
+                    <div class="status-item success">
+                        <div class="status-label">Open Tickets</div>
+                        <div class="status-value" id="openTickets">3</div>
+                    </div>
+                    <div class="status-item warning">
+                        <div class="status-label">Pending Review</div>
+                        <div class="status-value" id="pendingTickets">1</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Closed Today</div>
+                        <div class="status-value" id="closedTickets">2</div>
+                    </div>
+                </div>
+                <div id="ticketsList">
+                    <div class="maintenance-event">
+                        <div class="event-header">
+                            <div class="event-title">AWS EC2 Maintenance</div>
+                            <div class="event-time">Ticket: CHG0001234</div>
+                        </div>
+                        <div class="event-description">
+                            Scheduled maintenance for EC2 instances in us-east-1 region.
+                        </div>
+                        <div class="event-details">
+                            <div class="detail-item">
+                                <span class="detail-label">Start:</span>
+                                <span class="detail-value">2025-07-08 02:00 UTC</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Duration:</span>
+                                <span class="detail-value">4 hours</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Status:</span>
+                                <span class="detail-value">Approved</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon email-icon">📧</div>
+                    <h3>Email Notifications</h3>
+                </div>
+                <div class="status-grid">
+                    <div class="status-item success">
+                        <div class="status-label">Sent Today</div>
+                        <div class="status-value" id="emailsSent">12</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Stakeholders</div>
+                        <div class="status-value" id="stakeholderCount">8</div>
+                    </div>
+                    <div class="status-item warning">
+                        <div class="status-label">Pending</div>
+                        <div class="status-value" id="pendingEmails">2</div>
+                    </div>
+                </div>
+                <div style="margin-top: 15px;">
+                    <button class="btn btn-primary" onclick="showEmailPreview()">📧 Preview Email Templates</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon aws-icon">☁️</div>
+                    <h3>Cloud Provider Status</h3>
+                </div>
+                <div class="status-grid">
+                    <div class="status-item success">
+                        <div class="status-label">AWS</div>
+                        <div class="status-value">✅ Operational</div>
+                    </div>
+                    <div class="status-item success">
+                        <div class="status-label">GCP</div>
+                        <div class="status-value">✅ Operational</div>
+                    </div>
+                    <div class="status-item warning">
+                        <div class="status-label">Azure</div>
+                        <div class="status-value">⚠️ Maintenance</div>
+                    </div>
+                    <div class="status-item success">
+                        <div class="status-label">Oracle</div>
+                        <div class="status-value">✅ Operational</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon gcp-icon">🔗</div>
+                    <h3>Connectivity Status</h3>
+                </div>
+                <div class="connectivity-status" id="connectivityStatus">
+                    <div class="connectivity-item up">
+                        <div class="connectivity-header">
+                            <div class="connectivity-name">AWS DX VIF-1</div>
+                            <div class="connectivity-status-badge status-up">UP</div>
+                        </div>
+                        <div class="event-details">
+                            <div class="detail-item">
+                                <span class="detail-label">BGP Status:</span>
+                                <span class="detail-value">Established</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Last Check:</span>
+                                <span class="detail-value">2 min ago</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="connectivity-item degraded">
+                        <div class="connectivity-header">
+                            <div class="connectivity-name">GCP Interconnect-1</div>
+                            <div class="connectivity-status-badge status-degraded">DEGRADED</div>
+                        </div>
+                        <div class="event-details">
+                            <div class="detail-item">
+                                <span class="detail-label">BGP Status:</span>
+                                <span class="detail-value">Flapping</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Last Check:</span>
+                                <span class="detail-value">1 min ago</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon oracle-icon">📅</div>
+                <h3>Upcoming Maintenance Events</h3>
+            </div>
+            <div id="maintenanceEvents">
+                <div class="maintenance-event critical">
+                    <div class="event-header">
+                        <div class="event-title">Azure ExpressRoute Maintenance</div>
+                        <div class="event-time">In 2 days</div>
+                    </div>
+                    <div class="event-description">
+                        Scheduled maintenance on ExpressRoute circuit in West US 2. Expected impact: 30 minutes downtime.
+                    </div>
+                    <div class="event-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Provider:</span>
+                            <span class="detail-value">Microsoft Azure</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Start:</span>
+                            <span class="detail-value">2025-07-08 03:00 UTC</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Duration:</span>
+                            <span class="detail-value">4 hours</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Impact:</span>
+                            <span class="detail-value">High</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="maintenance-event">
+                    <div class="event-header">
+                        <div class="event-title">GCP Compute Engine Maintenance</div>
+                        <div class="event-time">In 5 days</div>
+                    </div>
+                    <div class="event-description">
+                        Routine maintenance on Compute Engine instances in us-central1. Live migration expected.
+                    </div>
+                    <div class="event-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Provider:</span>
+                            <span class="detail-value">Google Cloud</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Start:</span>
+                            <span class="detail-value">2025-07-11 06:00 UTC</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Duration:</span>
+                            <span class="detail-value">2 hours</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Impact:</span>
+                            <span class="detail-value">Low</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon" style="background: #333;">📊</div>
+                <h3>System Activity Log</h3>
+            </div>
+            <div class="log-container" id="systemLog">
+                <div class="log-entry">
+                    <span class="log-timestamp">[2025-07-06 15:30:25]</span>
+                    <span class="log-info">INFO</span> - System started successfully
+                </div>
+                <div class="log-entry">
+                    <span class="log-timestamp">[2025-07-06 15:30:30]</span>
+                    <span class="log-info">INFO</span> - Scanning AWS Health API for maintenance events...
+                </div>
+                <div class="log-entry">
+                    <span class="log-timestamp">[2025-07-06 15:30:35]</span>
+                    <span class="log-warning">WARN</span> - Found 1 upcoming maintenance event in AWS
+                </div>
+                <div class="log-entry">
+                    <span class="log-timestamp">[2025-07-06 15:30:40]</span>
+                    <span class="log-info">INFO</span> - Created ServiceNow ticket CHG0001234
+                </div>
+                <div class="log-entry">
+                    <span class="log-timestamp">[2025-07-06 15:30:45]</span>
+                    <span class="log-info">INFO</span> - Sent pre-maintenance notification to 8 stakeholders
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Email Preview -->
+    <div id="emailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>📧 Email Template Preview</h2>
+            <div style="margin-top: 20px;">
+                <h3>Pre-Maintenance Notification</h3>
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
+                    <strong>Subject:</strong> URGENT: Upcoming Maintenance - Azure ExpressRoute<br><br>
+                    <strong>Dear Team,</strong><br><br>
+                    This is an urgent notification regarding upcoming scheduled maintenance that may impact our services.<br><br>
+                    <strong>MAINTENANCE DETAILS:</strong><br>
+                    Provider: Microsoft Azure<br>
+                    Service: ExpressRoute<br>
+                    Start Time: 2025-07-08 03:00:00 UTC<br>
+                    End Time: 2025-07-08 07:00:00 UTC<br>
+                    Duration: 4:00:00<br>
+                    Impact Level: High<br><br>
+                    <strong>CHANGE TICKET:</strong> CHG0001235<br><br>
+                    <strong>RECOMMENDED ACTIONS:</strong><br>
+                    1. Review the maintenance impact on your applications<br>
+                    2. Ensure monitoring is active during the maintenance window<br>
+                    3. Prepare rollback procedures if needed<br><br>
+                    Best regards,<br>
+                    Cloud Operations Team
+                </div>
+                
+                <h3>Post-Maintenance Notification</h3>
+                <div style="background: #d4edda; padding: 20px; border-radius: 10px; margin: 10px 0; border-left: 4px solid #28a745;">
+                    <strong>Subject:</strong> COMPLETED: Maintenance Activity - Azure ExpressRoute<br><br>
+                    <strong>Dear Team,</strong><br><br>
+                    This is to inform you that the scheduled maintenance activity has been completed successfully.<br><br>
+                    <strong>MAINTENANCE SUMMARY:</strong><br>
+                    Provider: Microsoft Azure<br>
+                    Service: ExpressRoute<br>
+                    Scheduled Start: 2025-07-08 03:00:00 UTC<br>
+                    Scheduled End: 2025-07-08 07:00:00 UTC<br>
+                    Actual Completion: 2025-07-08 06:45:00 UTC<br><br>
+                    <strong>CHANGE TICKET:</strong> CHG0001235 - CLOSED<br><br>
+                    Thank you for your attention to this maintenance activity.<br><br>
+                    Best regards,<br>
+                    Cloud Operations Team
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let logCount = 5;
+        
+        function addLogEntry(level, message) {
+            const logContainer = document.getElementById('systemLog');
+            const timestamp = new Date().toLocaleString();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `
+                <span class="log-timestamp">[${timestamp}]</span>
+                <span class="log-${level.toLowerCase()}">${level}</span> - ${message}
+            `;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            // Keep only last 50 entries
+            if (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+        
+        function scanMaintenanceEvents() {
+            addLogEntry('INFO', 'Starting maintenance event scan...');
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Scanning AWS Health API...');
+            }, 1000);
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Scanning GCP Operations Suite...');
+            }, 2000);
+            
+            setTimeout(() => {
+                addLogEntry('WARN', 'Found 2 new maintenance events');
+                addLogEntry('INFO', 'Creating ServiceNow tickets...');
+            }, 3000);
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Tickets created: CHG0001236, CHG0001237');
+                addLogEntry('INFO', 'Sending notifications to stakeholders...');
+                
+                // Update counters
+                document.getElementById('openTickets').textContent = '5';
+                document.getElementById('emailsSent').textContent = '16';
+            }, 4000);
+        }
+        
+        function checkConnectivity() {
+            addLogEntry('INFO', 'Checking connectivity status for all resources...');
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Checking AWS Direct Connect VIFs...');
+            }, 500);
+            
+            setTimeout(() => {
+                addLogEntry('WARN', 'GCP Interconnect-1 showing BGP flapping');
+                addLogEntry('INFO', 'Checking Azure ExpressRoute circuits...');
+            }, 1500);
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Connectivity check completed');
+                addLogEntry('INFO', 'Status: 3 UP, 1 DEGRADED, 0 DOWN');
+            }, 2500);
+        }
+        
+        function simulateMaintenanceEvent() {
+            addLogEntry('WARN', 'Simulating emergency maintenance event...');
+            
+            const maintenanceEvents = document.getElementById('maintenanceEvents');
+            const newEvent = document.createElement('div');
+            newEvent.className = 'maintenance-event critical';
+            newEvent.innerHTML = `
+                <div class="event-header">
+                    <div class="event-title">AWS RDS Emergency Maintenance</div>
+                    <div class="event-time">In 6 hours</div>
+                </div>
+                <div class="event-description">
+                    Emergency security patch required for RDS instances. Brief service interruption expected.
+                </div>
+                <div class="event-details">
+                    <div class="detail-item">
+                        <span class="detail-label">Provider:</span>
+                        <span class="detail-value">Amazon Web Services</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Start:</span>
+                        <span class="detail-value">2025-07-06 22:00 UTC</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Duration:</span>
+                        <span class="detail-value">1 hour</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Impact:</span>
+                        <span class="detail-value">Critical</span>
+                    </div>
+                </div>
+            `;
+            maintenanceEvents.insertBefore(newEvent, maintenanceEvents.firstChild);
+            
+            setTimeout(() => {
+                addLogEntry('ERROR', 'CRITICAL: Emergency maintenance detected!');
+                addLogEntry('INFO', 'Creating emergency change ticket...');
+            }, 1000);
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Emergency ticket created: CHG0001238');
+                addLogEntry('INFO', 'Sending URGENT notifications to all stakeholders...');
+                
+                // Update counters
+                document.getElementById('openTickets').textContent = '6';
+                document.getElementById('emailsSent').textContent = '24';
+            }, 2000);
+        }
+        
+        function emergencyNotification() {
+            addLogEntry('ERROR', 'EMERGENCY: Initiating emergency notification protocol...');
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Sending SMS alerts to on-call team...');
+                addLogEntry('INFO', 'Sending email to executive team...');
+                addLogEntry('INFO', 'Creating incident ticket...');
+            }, 1000);
+            
+            setTimeout(() => {
+                addLogEntry('INFO', 'Emergency notifications sent successfully');
+                addLogEntry('INFO', 'Incident ticket: INC0001001');
+                
+                // Update counters
+                document.getElementById('emailsSent').textContent = '30';
+                document.getElementById('pendingEmails').textContent = '0';
+            }, 2000);
+        }
+        
+        function showEmailPreview() {
+            document.getElementById('emailModal').style.display = 'block';
+        }
+        
+        function closeModal() {
+            document.getElementById('emailModal').style.display = 'none';
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('emailModal
