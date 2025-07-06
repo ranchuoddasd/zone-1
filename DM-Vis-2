@@ -1,0 +1,664 @@
+
+import os
+import json
+import networkx as nx
+from pyvis.network import Network
+import plotly.graph_objects as go
+from openai import OpenAI
+from typing import Dict, List, Optional, Any
+
+# Define data models with proper forward references
+class Interface:
+    def __init__(self, name: str, ip_address: str = None, connected_to: str = None):
+        self.name = name
+        self.ip_address = ip_address
+        self.connected_to = connected_to
+
+class Route:
+    def __init__(self, prefix: str, next_hop: str, protocol: str):
+        self.prefix = prefix
+        self.next_hop = next_hop
+        self.protocol = protocol
+
+class ACLRule:
+    def __init__(self, action: str, source: str, destination: str, protocol: str, port: str = None):
+        self.action = action
+        self.source = source
+        self.destination = destination
+        self.protocol = protocol
+        self.port = port
+
+class ACL:
+    def __init__(self, name: str, rules: List[ACLRule]):
+        self.name = name
+        self.rules = rules
+
+class RouteMapEntry:
+    def __init__(self, sequence: int, action: str, match: Dict[str, Any], set: Dict[str, Any]):
+        self.sequence = sequence
+        self.action = action
+        self.match = match
+        self.set = set
+
+class RouteMap:
+    def __init__(self, name: str, entries: List[RouteMapEntry]):
+        self.name = name
+        self.entries = entries
+
+class SecurityPolicyRule:
+    def __init__(self, name: str, source: str, destination: str, application: str, action: str):
+        self.name = name
+        self.source = source
+        self.destination = destination
+        self.application = application
+        self.action = action
+
+class SecurityPolicy:
+    def __init__(self, name: str, rules: List[SecurityPolicyRule]):
+        self.name = name
+        self.rules = rules
+
+class Device:
+    def __init__(self, name: str, vendor: str, device_type: str = "router"):
+        self.name = name
+        self.vendor = vendor
+        self.device_type = device_type
+        self.interfaces: Dict[str, Interface] = {}
+        self.routing_table: List[Route] = []
+        self.acls: Dict[str, ACL] = {}
+        self.route_maps: Dict[str, RouteMap] = {}
+        self.security_policies: Dict[str, SecurityPolicy] = {}
+
+class Interface:
+    def __init__(self, name: str, ip_address: str = None, connected_to: str = None):
+        self.name = name
+        self.ip_address = ip_address
+        self.connected_to = connected_to  # Device name this interface connects to
+
+
+class Route:
+    def __init__(self, prefix: str, next_hop: str, protocol: str):
+        self.prefix = prefix
+        self.next_hop = next_hop
+        self.protocol = protocol
+
+
+class ACL:
+    def __init__(self, name: str, rules: List[ACLRule]):
+        self.name = name
+        self.rules = rules
+
+
+class ACLRule:
+    def __init__(self, action: str, source: str, destination: str, protocol: str, port: str = None):
+        self.action = action
+        self.source = source
+        self.destination = destination
+        self.protocol = protocol
+        self.port = port
+
+
+class RouteMap:
+    def __init__(self, name: str, entries: List[RouteMapEntry]):
+        self.name = name
+        self.entries = entries
+
+
+class RouteMapEntry:
+    def __init__(self, sequence: int, action: str, match: Dict, set: Dict):
+        self.sequence = sequence
+        self.action = action
+        self.match = match
+        self.set = set
+
+
+class SecurityPolicy:
+    def __init__(self, name: str, rules: List[SecurityPolicyRule]):
+        self.name = name
+        self.rules = rules
+
+
+class SecurityPolicyRule:
+    def __init__(self, name: str, source: str, destination: str, application: str, action: str):
+        self.name = name
+        self.source = source
+        self.destination = destination
+        self.application = application
+        self.action = action
+
+
+# Network Model and Parsers
+class NetworkModel:
+    def __init__(self):
+        self.devices: Dict[str, Device] = {}
+        self.topology = nx.Graph()
+
+    def add_device(self, config_text: str, vendor: str, device_name: str):
+        if vendor.lower() == 'cisco':
+            parser = CiscoParser(config_text, device_name)
+        elif vendor.lower() == 'juniper':
+            parser = JuniperParser(config_text, device_name)
+        else:
+            raise ValueError("Unsupported vendor")
+
+        device = parser.parse()
+        self.devices[device.name] = device
+        self._update_topology(device)
+
+    def _update_topology(self, device: Device):
+        self.topology.add_node(device.name, type=device.device_type)
+        for intf in device.interfaces.values():
+            if intf.connected_to:
+                self.topology.add_edge(device.name, intf.connected_to,
+                                       interface=intf.name,
+                                       ip=intf.ip_address)
+
+
+class CiscoParser:
+    def __init__(self, config_text: str, device_name: str):
+        self.config = config_text
+        self.device_name = device_name
+
+    def parse(self) -> Device:
+        device = Device(name=self.device_name, vendor='cisco')
+
+        # Simplified parsing - in reality would use pyATS/Genie
+        lines = self.config.split('\n')
+
+        # Parse interfaces
+        current_interface = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith('interface '):
+                intf_name = line[10:].strip()
+                device.interfaces[intf_name] = Interface(name=intf_name)
+                current_interface = intf_name
+            elif current_interface and line.startswith('ip address '):
+                parts = line.split()
+                ip = parts[2]
+                device.interfaces[current_interface].ip_address = ip
+            elif current_interface and line.startswith('description Connected to '):
+                connected_to = line[21:].strip()
+                device.interfaces[current_interface].connected_to = connected_to
+
+        # Parse routing table (simplified)
+        device.routing_table = [
+            Route(prefix="0.0.0.0/0", next_hop="10.0.0.1", protocol="static"),
+            Route(prefix="10.0.0.0/8", next_hop="direct", protocol="connected")
+        ]
+
+        return device
+
+
+class JuniperParser:
+    def __init__(self, config_text: str, device_name: str):
+        self.config = config_text
+        self.device_name = device_name
+
+    def parse(self) -> Device:
+        device = Device(name=self.device_name, vendor='juniper', device_type="firewall")
+
+        # Simplified parsing - in reality would use PyEZ
+        lines = self.config.split('\n')
+
+        # Parse interfaces
+        current_interface = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith('set interfaces '):
+                parts = line.split()
+                intf_name = parts[2]
+                if 'unit 0 family inet address ' in line:
+                    ip_part = line.split('address ')[1].split()[0]
+                    device.interfaces[intf_name] = Interface(name=intf_name, ip_address=ip_part)
+                    current_interface = intf_name
+            elif current_interface and 'description "Connected to ' in line:
+                connected_to = line.split('Connected to ')[1].replace('"', '').strip()
+                device.interfaces[current_interface].connected_to = connected_to
+
+        # Parse security policies (simplified)
+        device.security_policies = {
+            "default-policy": SecurityPolicy("default-policy", [
+                SecurityPolicyRule("allow-dns", "any", "any", "dns", "permit"),
+                SecurityPolicyRule("deny-all", "any", "any", "any", "deny")
+            ])
+        }
+
+        return device
+
+
+# Analysis Engine
+class ImpactAnalyzer:
+    def __init__(self, network_model: NetworkModel):
+        self.model = network_model
+
+    def analyze_change(self, device_name: str, new_config: str, vendor: str) -> Dict:
+        # Create temp device with new config
+        temp_model = NetworkModel()
+        temp_model.add_device(new_config, vendor, device_name)
+        new_device = temp_model.devices[device_name]
+        old_device = self.model.devices.get(device_name)
+
+        if not old_device:
+            return {"error": f"Device {device_name} not found in baseline"}
+
+        # Perform differential analysis
+        diff = self._compare_configs(old_device, new_device)
+
+        # Simulate impact
+        impact_report = {
+            'routing_changes': self._analyze_routing_impact(diff, device_name),
+            'security_changes': self._analyze_security_impact(diff),
+            'connectivity_changes': self._analyze_connectivity(diff),
+            'issues': self._identify_issues(diff)
+        }
+
+        return impact_report
+
+    def _compare_configs(self, old: Device, new: Device) -> Dict:
+        diff = {}
+
+        # Compare interfaces
+        diff['interfaces'] = {
+            'added': [i for i in new.interfaces if i not in old.interfaces],
+            'removed': [i for i in old.interfaces if i not in new.interfaces],
+            'changed': [i for i in new.interfaces if i in old.interfaces
+                        and new.interfaces[i].ip_address != old.interfaces[i].ip_address]
+        }
+
+        # Compare routes (simplified)
+        old_routes = {(r.prefix, r.next_hop) for r in old.routing_table}
+        new_routes = {(r.prefix, r.next_hop) for r in new.routing_table}
+        diff['route_changes'] = {
+            'added': list(new_routes - old_routes),
+            'removed': list(old_routes - new_routes)
+        }
+
+        return diff
+
+    def _analyze_routing_impact(self, diff: Dict, changed_device: str) -> List[Dict]:
+        affected_paths = []
+
+        # For each changed route, find affected paths
+        for prefix, _ in diff.get('route_changes', {}).get('added', []) + \
+                         diff.get('route_changes', {}).get('removed', []):
+
+            # Find all paths using this prefix
+            paths = self._find_all_paths_using_prefix(prefix)
+
+            for path in paths:
+                original_path = self._simulate_path(path)
+
+                # Temporarily update the model with the new config
+                original_device = self.model.devices[changed_device]
+                temp_device = NetworkModel()
+                temp_device.add_device("", original_device.vendor, changed_device)
+                self.model.devices[changed_device] = temp_device.devices[changed_device]
+
+                new_path = self._simulate_path(path)
+
+                # Restore original device
+                self.model.devices[changed_device] = original_device
+
+                if original_path != new_path:
+                    affected_paths.append({
+                        'prefix': prefix,
+                        'original_path': original_path,
+                        'new_path': new_path,
+                        'devices_affected': list(set(new_path) - set(original_path))
+                    })
+
+        return affected_paths
+
+    def _simulate_path(self, path: List[str]) -> List[str]:
+        simulated_path = []
+        current_device = path[0]
+        destination = path[-1]
+
+        while current_device != destination:
+            if current_device in simulated_path:  # Routing loop
+                break
+
+            simulated_path.append(current_device)
+            next_hop = self._determine_next_hop(current_device, destination)
+
+            if next_hop == current_device:  # No route found
+                break
+
+            current_device = next_hop
+
+        simulated_path.append(destination)
+        return simulated_path
+
+    def _determine_next_hop(self, device_name: str, destination: str) -> str:
+        device = self.model.devices[device_name]
+
+        # Simplified routing lookup - in reality would do longest prefix match
+        for route in device.routing_table:
+            if self._ip_in_prefix(destination, route.prefix):
+                if route.next_hop == "direct":
+                    return destination
+                return route.next_hop
+
+        return device_name  # No route found
+
+    def _ip_in_prefix(self, ip: str, prefix: str) -> bool:
+        # Simplified implementation
+        return True
+
+    def _find_all_paths_using_prefix(self, prefix: str) -> List[List[str]]:
+        # Simplified - would normally analyze routing tables to find paths
+        return [['R1', 'FW1', 'destination']]
+
+    def _analyze_security_impact(self, diff: Dict) -> List[Dict]:
+        # Simplified security impact analysis
+        impacts = []
+        if 'security_policies' in diff:
+            impacts.append({
+                'type': 'security_policy_change',
+                'description': 'Firewall policies modified',
+                'severity': 'high'
+            })
+        return impacts
+
+    def _analyze_connectivity(self, diff: Dict) -> List[Dict]:
+        # Simplified connectivity analysis
+        impacts = []
+        if 'interfaces' in diff:
+            impacts.append({
+                'type': 'interface_change',
+                'description': f"Interfaces modified: {diff['interfaces']}",
+                'severity': 'medium'
+            })
+        return impacts
+
+    def _identify_issues(self, diff: Dict) -> List[Dict]:
+        issues = []
+
+        # Check for routing loops
+        for path in self._analyze_routing_impact(diff, ""):
+            if len(path['new_path']) > 10:  # Arbitrary threshold for loop detection
+                issues.append({
+                    'type': 'routing_loop',
+                    'description': f"Potential routing loop detected for prefix {path['prefix']}",
+                    'severity': 'critical',
+                    'path': path['new_path']
+                })
+
+        return issues
+
+
+# Visualization System
+class NetworkVisualizer:
+    def __init__(self, network_model: NetworkModel):
+        self.model = network_model
+
+    def generate_topology_view(self) -> Network:
+        net = Network(height='800px', width='100%', directed=True, notebook=False)
+
+        # Add nodes with different shapes based on device type
+        for node in self.model.topology.nodes:
+            device = self.model.devices.get(node)
+            if device:
+                if device.device_type == "firewall":
+                    net.add_node(node, label=node, shape='diamond', color='red')
+                else:
+                    net.add_node(node, label=node, shape='box', color='blue')
+
+        # Add edges with interface information
+        for edge in self.model.topology.edges:
+            data = self.model.topology.get_edge_data(edge[0], edge[1])
+            net.add_edge(edge[0], edge[1],
+                         title=f"Interface: {data.get('interface', 'N/A')}\nIP: {data.get('ip', 'N/A')}",
+                         width=2)
+
+        # Physics configuration for better layout
+        net.set_options("""
+        {
+            "physics": {
+                "forceAtlas2Based": {
+                    "gravitationalConstant": -50,
+                    "centralGravity": 0.01,
+                    "springLength": 100,
+                    "springConstant": 0.08
+                },
+                "minVelocity": 0.75,
+                "solver": "forceAtlas2Based"
+            }
+        }
+        """)
+
+        return net
+
+    def generate_path_visualization(self, path_data: Dict) -> go.Figure:
+        fig = go.Figure()
+
+        # Add nodes
+        for i, hop in enumerate(path_data['hops']):
+            fig.add_trace(go.Scatter(
+                x=[i], y=[0],
+                mode='markers+text',
+                marker=dict(size=30, color='blue'),
+                text=hop['device'],
+                textposition="bottom center",
+                hovertext=self._get_device_info(hop['device']),
+                name=hop['device']
+            ))
+
+            # Add latency info if available
+            if 'latency' in hop:
+                fig.add_annotation(
+                    x=i, y=0.1,
+                    text=f"{hop['latency']}ms",
+                    showarrow=False,
+                    font=dict(size=10)
+                )
+
+        # Add edges
+        for i in range(len(path_data['hops']) - 1):
+            fig.add_trace(go.Scatter(
+                x=[i, i + 1], y=[0, 0],
+                mode='lines',
+                line=dict(color='gray', width=2),
+                hoverinfo='none'
+            ))
+
+        # Add issues
+        for issue in path_data.get('issues', []):
+            fig.add_annotation(
+                x=issue['hop_index'], y=0.2,
+                text=issue['description'],
+                showarrow=True,
+                arrowhead=2,
+                font=dict(color='red')
+            )
+
+        fig.update_layout(
+            showlegend=False,
+            title=f"Path from {path_data['source']} to {path_data['destination']}",
+            xaxis=dict(showticklabels=False),
+            yaxis=dict(showticklabels=False),
+            height=400,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        return fig
+
+    def _get_device_info(self, device_name: str) -> str:
+        device = self.model.devices.get(device_name)
+        if not device:
+            return "Device not found"
+
+        info = f"Device: {device_name}\nType: {device.device_type}\nVendor: {device.vendor}\n\n"
+        info += "Interfaces:\n"
+        for intf in device.interfaces.values():
+            info += f"- {intf.name}: {intf.ip_address if intf.ip_address else 'No IP'}\n"
+
+        return info
+
+
+# LLM Integration
+class LLMInterface:
+    def __init__(self, api_key: str = None):
+        self.client = OpenAI(api_key=api_key) if api_key else None
+
+    def generate_impact_summary(self, impact_report: Dict) -> str:
+        if not self.client:
+            return "LLM integration not configured - no API key provided"
+
+        prompt = f"""
+        You are a network engineer analyzing configuration changes. Below is an impact report:
+        {json.dumps(impact_report, indent=2)}
+
+        Provide a detailed summary of the impact in clear, non-technical terms where possible.
+        Highlight any critical issues like routing loops, security vulnerabilities, or connectivity loss.
+        Format the response with clear sections and bullet points.
+        """
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "system", "content": prompt}],
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error generating summary: {str(e)}"
+
+    def generate_remediation_advice(self, issues: List[Dict]) -> str:
+        if not self.client:
+            return "LLM integration not configured - no API key provided"
+
+        prompt = f"""
+        These network issues were identified:
+        {json.dumps(issues, indent=2)}
+
+        Provide specific configuration recommendations to resolve each issue.
+        Include both Cisco and Juniper syntax examples where applicable.
+        Organize the response by issue type and severity.
+        """
+
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "system", "content": prompt}],
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error generating recommendations: {str(e)}"
+
+
+# Main Application Class
+class NetworkChangeManager:
+    def __init__(self, openai_api_key: str = None):
+        self.model = NetworkModel()
+        self.analyzer = ImpactAnalyzer(self.model)
+        self.visualizer = NetworkVisualizer(self.model)
+        self.llm = LLMInterface(openai_api_key)
+
+    def load_baseline(self, config_files: List[Dict[str, str]]):
+        """
+        Load baseline configurations
+        config_files: List of dicts with keys: 'name', 'vendor', 'config'
+        """
+        for file in config_files:
+            self.model.add_device(file['config'], file['vendor'], file['name'])
+
+    def evaluate_change(self, device_name: str, new_config: str, vendor: str) -> Dict:
+        """
+        Evaluate the impact of a configuration change
+        Returns a dictionary with analysis results and visualizations
+        """
+        # Analyze impact
+        impact = self.analyzer.analyze_change(device_name, new_config, vendor)
+
+        # Generate visualizations
+        topology_view = self.visualizer.generate_topology_view()
+
+        # Generate path visualizations for affected paths
+        path_views = []
+        for path in impact.get('routing_changes', []):
+            path_data = {
+                'source': path['original_path'][0],
+                'destination': path['original_path'][-1],
+                'hops': [{'device': dev} for dev in path['original_path']]
+            }
+            path_views.append(self.visualizer.generate_path_visualization(path_data))
+
+        # Generate natural language summaries
+        summary = self.llm.generate_impact_summary(impact)
+        recommendations = ""
+        if impact.get('issues'):
+            recommendations = self.llm.generate_remediation_advice(impact['issues'])
+
+        return {
+            'impact_analysis': impact,
+            'visualizations': {
+                'topology': topology_view,
+                'paths': path_views
+            },
+            'summary': summary,
+            'recommendations': recommendations
+        }
+
+
+# Example Usage
+if __name__ == "__main__":
+    # Sample configurations
+    cisco_config = """
+    hostname R1
+    interface GigabitEthernet0/0
+     ip address 10.0.0.1 255.255.255.0
+     description Connected to FW1
+    interface GigabitEthernet0/1
+     ip address 10.0.1.1 255.255.255.0
+     description Connected to R2
+    ip route 0.0.0.0 0.0.0.0 10.0.0.2
+    """
+
+    juniper_config = """
+    set system host-name FW1
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.2/24
+    set interfaces ge-0/0/0 description "Connected to R1"
+    set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24
+    set security policies default-policy permit-all
+    """
+
+    # New proposed config with changes
+    new_cisco_config = """
+    hostname R1
+    interface GigabitEthernet0/0
+     ip address 10.0.0.1 255.255.255.0
+     description Connected to FW1
+    interface GigabitEthernet0/1
+     ip address 10.0.1.1 255.255.255.0
+     description Connected to R2
+    ip route 0.0.0.0 0.0.0.0 10.0.1.2  # Changed default route
+    """
+
+    # Initialize the system
+    manager = NetworkChangeManager(openai_api_key=os.getenv('OPENAI_API_KEY'))
+
+    # Load baseline configurations
+    manager.load_baseline([
+        {'name': 'R1', 'vendor': 'cisco', 'config': cisco_config},
+        {'name': 'FW1', 'vendor': 'juniper', 'config': juniper_config}
+    ])
+
+    # Evaluate a change
+    results = manager.evaluate_change('R1', new_cisco_config, 'cisco')
+
+    # Save visualizations
+    results['visualizations']['topology'].show('topology.html')
+    for i, path in enumerate(results['visualizations']['paths']):
+        path.write_html(f'path_{i}.html')
+
+    # Print results
+    print("=== Impact Analysis ===")
+    print(json.dumps(results['impact_analysis'], indent=2))
+
+    print("\n=== Summary ===")
+    print(results['summary'])
+
+    print("\n=== Recommendations ===")
+    print(results['recommendations'])
