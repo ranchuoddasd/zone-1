@@ -1,0 +1,225 @@
+""
+Network Path Analyzer CLI
+Command-line interface for network topology analysis and path simulation
+"""
+
+import click
+import json
+import os
+import sys
+from pathlib import Path
+from typing import List, Dict, Any
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.tree import Tree
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from models.device import Device, DeviceType
+from models.topology import NetworkTopology
+from parsers.cisco_parser import CiscoParser
+from parsers.juniper_parser import JuniperParser
+from engine.topology_builder import TopologyBuilder
+from engine.path_finder import PathFinder
+from engine.impact_analyzer import ImpactAnalyzer
+
+console = Console()
+
+@click.group()
+@click.version_option(version='1.0.0')
+def cli():
+    """Network Path Analyzer - CLI for network topology analysis and path simulation"""
+    pass
+
+@cli.command()
+@click.option('--config-dir', '-d', required=True, help='Directory containing configuration files')
+@click.option('--output', '-o', help='Output file for topology data (JSON)')
+@click.option('--validate', is_flag=True, help='Validate topology after building')
+def ingest(config_dir: str, output: str, validate: bool):
+    """Ingest device configurations and build network topology"""
+    
+    config_path = Path(config_dir)
+    if not config_path.exists():
+        console.print(f"[red]Error: Configuration directory {config_dir} does not exist[/red]")
+        sys.exit(1)
+    
+    config_files = []
+    for ext in ['*.cfg', '*.conf', '*.txt']:
+        config_files.extend(config_path.glob(ext))
+    
+    if not config_files:
+        console.print(f"[red]Error: No configuration files found in {config_dir}[/red]")
+        sys.exit(1)
+    
+    console.print(f"[blue]Found {len(config_files)} configuration files[/blue]")
+    
+    topology_builder = TopologyBuilder()
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+        
+        task = progress.add_task("Processing configurations...", total=len(config_files))
+        
+        for config_file in config_files:
+            progress.update(task, description=f"Processing {config_file.name}...")
+            
+            try:
+                with open(config_file, 'r') as f:
+                    config_content = f.read()
+                
+                device_type = DeviceType.CISCO_IOS  # Default
+                if 'juniper' in config_file.name.lower() or 'srx' in config_file.name.lower():
+                    device_type = DeviceType.JUNIPER_SRX
+                
+                if device_type == DeviceType.JUNIPER_SRX:
+                    parser = JuniperParser(config_content, config_file.stem)
+                else:
+                    parser = CiscoParser(config_content, config_file.stem)
+                
+                device = parser.parse()
+                topology_builder.add_device(device)
+                
+                progress.advance(task)
+                
+            except Exception as e:
+                console.print(f"[red]Error processing {config_file.name}: {e}[/red]")
+                continue
+    
+    console.print("[blue]Building network topology...[/blue]")
+    topology = topology_builder.build_topology()
+    
+    console.print(Panel.fit(
+        f"[green]✓ Topology built successfully[/green]\n"
+        f"Devices: {len(topology.devices)}\n"
+        f"Links: {len(topology.links)}",
+        title="Ingestion Complete"
+    ))
+    
+    if validate:
+        console.print("[blue]Validating topology...[/blue]")
+        validation = topology_builder.validate_topology()
+        
+        table = Table(title="Topology Validation")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green")
+        
+        table.add_row("Device Count", str(validation['device_count']))
+        table.add_row("Link Count", str(validation['link_count']))
+        table.add_row("Isolated Devices", str(len(validation['isolated_devices'])))
+        table.add_row("Duplicate Links", str(len(validation['duplicate_links'])))
+        
+        console.print(table)
+        
+        if validation['warnings']:
+            console.print("[yellow]Warnings:[/yellow]")
+            for warning in validation['warnings']:
+                console.print(f"  • {warning}")
+    
+    if output:
+        topology_data = topology.to_dict()
+        with open(output, 'w') as f:
+            json.dump(topology_data, f, indent=2)
+        console.print(f"[green]Topology saved to {output}[/green]")
+
+@cli.command()
+@click.option('--topology', '-t', help='Topology file (JSON)')
+@click.option('--source', '-s', required=True, help='Source IP address')
+@click.option('--destination', '-d', required=True, help='Destination IP address')
+@click.option('--protocol', '-p', default='ip', help='Protocol (ip, tcp, udp, icmp)')
+@click.option('--source-port', help='Source port number')
+@click.option('--destination-port', help='Destination port number')
+@click.option('--output', '-o', help='Output file for path data (JSON)')
+def path(topology: str, source: str, destination: str, protocol: str, 
+         source_port: str, destination_port: str, output: str):
+    """Calculate packet path from source to destination"""
+    
+    if topology:
+        try:
+            with open(topology, 'r') as f:
+                topology_data = json.load(f)
+            console.print("[red]Error: Loading topology from file not yet implemented[/red]")
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]Error loading topology: {e}[/red]")
+            sys.exit(1)
+    else:
+        console.print("[red]Error: No topology specified. Use --topology or run 'ingest' first[/red]")
+        sys.exit(1)
+    
+    
+    console.print(f"[blue]Calculating path from {source} to {destination}...[/blue]")
+    console.print("[yellow]Path calculation not yet implemented in CLI[/yellow]")
+
+@cli.command()
+@click.option('--topology', '-t', help='Topology file (JSON)')
+@click.option('--device', '-d', required=True, help='Device name to modify')
+@click.option('--diff-file', '-f', required=True, help='Configuration diff file')
+@click.option('--flows', '-F', help='Test flows file (JSON)')
+@click.option('--output', '-o', help='Output file for impact analysis (JSON)')
+def impact(topology: str, device: str, diff_file: str, flows: str, output: str):
+    """Analyze impact of configuration changes"""
+    
+    try:
+        with open(diff_file, 'r') as f:
+            config_diff = f.read()
+    except Exception as e:
+        console.print(f"[red]Error reading diff file: {e}[/red]")
+        sys.exit(1)
+    
+    test_flows = []
+    if flows:
+        try:
+            with open(flows, 'r') as f:
+                test_flows = json.load(f)
+        except Exception as e:
+            console.print(f"[red]Error reading flows file: {e}[/red]")
+            sys.exit(1)
+    else:
+        test_flows = [
+            {"source_ip": "10.1.1.1", "destination_ip": "10.2.2.2", "protocol": "ip"},
+            {"source_ip": "192.168.1.1", "destination_ip": "192.168.2.1", "protocol": "tcp"}
+        ]
+    
+    console.print(f"[blue]Analyzing impact of changes on device {device}...[/blue]")
+    console.print(f"[blue]Testing {len(test_flows)} flows[/blue]")
+    
+    console.print(Panel(config_diff, title="Configuration Changes", expand=False))
+    
+    console.print("[yellow]Impact analysis not yet implemented in CLI[/yellow]")
+
+@cli.command()
+def devices():
+    """List all devices in the topology"""
+    console.print("[yellow]Device listing not yet implemented in CLI[/yellow]")
+
+@cli.command()
+def links():
+    """List all links in the topology"""
+    console.print("[yellow]Link listing not yet implemented in CLI[/yellow]")
+
+@cli.command()
+@click.option('--host', default='0.0.0.0', help='Host to bind to')
+@click.option('--port', default=8000, help='Port to bind to')
+def serve(host: str, port: int):
+    """Start the API server"""
+    try:
+        import uvicorn
+        from api.main import app
+        
+        console.print(f"[blue]Starting API server on {host}:{port}...[/blue]")
+        uvicorn.run(app, host=host, port=port)
+        
+    except ImportError:
+        console.print("[red]Error: uvicorn not installed. Run: pip install uvicorn[/red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[red]Error starting server: {e}[/red]")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    cli()
