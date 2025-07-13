@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Search Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@7.22.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    function App() {
+      const [ipAddress, setIpAddress] = React.useState('');
+      const [results, setResults] = React.useState(null);
+      const [loading, setLoading] = React.useState(false);
+      const [error, setError] = React.useState(null);
+
+      const handleSearch = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const response = await fetch('http://localhost:3000/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: ipAddress }),
+          });
+          const data = await response.json();
+          setResults(data);
+        } catch (err) {
+          setError('Failed to fetch results');
+        }
+        setLoading(false);
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-2xl">
+            <h1 className="text-2xl font-bold mb-4 text-center">IP Address Search</h1>
+            <div className="flex mb-4">
+              <input
+                type="text"
+                value={ipAddress}
+                onChange={(e) => setIpAddress(e.target.value)}
+                placeholder="Enter IP Address (e.g., 192.168.1.1)"
+                className="flex-1 p-2 border rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleSearch}
+                className="bg-blue-500 text-white p-2 rounded-r-md hover:bg-blue-600"
+                disabled={loading}
+              >
+                {loading ? 'Searching...' : 'Search'}
+              </button>
+            </div>
+            {error && <p className="text-red-500">{error}</p>}
+            {results && (
+              <div className="mt-4">
+                <h2 className="text-xl font-semibold mb-2">Results</h2>
+                {results.splunk && (
+                  <div className="mb-4">
+                    <h3 className="text-lg font-medium">Splunk Logs</h3>
+                    <table className="w-full border-collapse border">
+                      <thead>
+                        <tr className="bg-gray-200">
+                          <th className="border p-2">Timestamp</th>
+                          <th className="border p-2">Log Entry</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {results.splunk.map((log, index) => (
+                          <tr key={index}>
+                            <td className="border p-2">{log.timestamp}</td>
+                            <td className="border p-2">{log.entry}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {results.inventory && (
+                  <div className="mb-4">
+                    <h3 className="text-lg font-medium">Inventory</h3>
+                    <table className="w-full border-collapse border">
+                      <thead>
+                        <tr className="bg-gray-200">
+                          <th className="border p-2">Device Name</th>
+                          <th className="border p-2">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {results.inventory.map((device, index) => (
+                          <tr key={index}>
+                            <td className="border p-2">{device.name}</td>
+                            <td className="border p-2">{device.details}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
