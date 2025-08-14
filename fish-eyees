@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Whale Scene with Following Fish</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: linear-gradient(135deg, #2D1B69 0%, #11998E 100%);
+            cursor: none;
+        }
+        
+        .scene {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .whale {
+            position: absolute;
+            transition: all 0.3s ease;
+        }
+        
+        .whale-1 {
+            top: 20%;
+            left: 10%;
+            animation: float1 8s ease-in-out infinite;
+        }
+        
+        .whale-2 {
+            top: 40%;
+            right: 15%;
+            animation: float2 10s ease-in-out infinite;
+        }
+        
+        .whale-3 {
+            top: 60%;
+            left: 30%;
+            animation: float3 12s ease-in-out infinite;
+        }
+        
+        .person {
+            position: absolute;
+            bottom: 10%;
+            left: 20%;
+            z-index: 10;
+        }
+        
+        .bubbles {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .bubble {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: rise linear infinite;
+        }
+        
+        .fish-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+        
+        .small-fish {
+            position: absolute;
+            transition: all 0.1s ease-out;
+            opacity: 0.8;
+        }
+        
+        .cursor-light {
+            position: fixed;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 15;
+        }
+        
+        @keyframes float1 {
+            0%, 100% { transform: translateY(0px) translateX(0px); }
+            25% { transform: translateY(-20px) translateX(10px); }
+            50% { transform: translateY(-10px) translateX(-5px); }
+            75% { transform: translateY(-30px) translateX(15px); }
+        }
+        
+        @keyframes float2 {
+            0%, 100% { transform: translateY(0px) translateX(0px); }
+            33% { transform: translateY(-15px) translateX(-10px); }
+            66% { transform: translateY(-25px) translateX(5px); }
+        }
+        
+        @keyframes float3 {
+            0%, 100% { transform: translateY(0px) translateX(0px); }
+            20% { transform: translateY(-10px) translateX(-8px); }
+            40% { transform: translateY(-20px) translateX(12px); }
+            60% { transform: translateY(-5px) translateX(-15px); }
+            80% { transform: translateY(-25px) translateX(8px); }
+        }
+        
+        @keyframes rise {
+            from {
+                bottom: -100px;
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            to {
+                bottom: 100vh;
+                opacity: 0;
+            }
+        }
+        
+        .message {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-family: 'Arial', sans-serif;
+            font-size: 14px;
+            z-index: 20;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body>
+    <div class="scene">
+        <div class="cursor-light"></div>
+        
+        <!-- Whales -->
+        <div class="whale whale-1">
+            <svg width="320" height="200" viewBox="0 0 220 140">
+                <defs>
+                    <linearGradient id="whaleGradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#5B21B6;stop-opacity:1" />
+                        <stop offset="30%" style="stop-color:#6B46C1;stop-opacity:1" />
+                        <stop offset="70%" style="stop-color:#8B5CF6;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#A78BFA;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="whaleBelly1" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#C4B5FD;stop-opacity:0.8" />
+                        <stop offset="100%" style="stop-color:#E9D5FF;stop-opacity:0.6" />
+                    </linearGradient>
+                </defs>
+                <!-- Main body -->
+                <path d="M 30 70 Q 40 40, 80 45 Q 140 50, 180 60 Q 190 65, 185 80 Q 170 95, 120 90 Q 80 85, 40 82 Q 25 78, 30 70 Z" fill="url(#whaleGradient1)" stroke="#4C1D95" stroke-width="1"/>
+                <!-- Belly -->
+                <path d="M 50 70 Q 80 75, 120 78 Q 150 80, 170 75 Q 160 85, 120 85 Q 80 83, 55 78 Q 45 75, 50 70 Z" fill="url(#whaleBelly1)"/>
+                <!-- Tail fin -->
+                <path d="M 180 60 Q 200 45, 210 55 Q 205 65, 190 70 Q 185 80, 195 85 Q 210 90, 205 95 Q 190 90, 185 80" fill="url(#whaleGradient1)" stroke="#4C1D95" stroke-width="1"/>
+                <!-- Dorsal fin -->
+                <path d="M 120 45 Q 125 35, 135 38 Q 140 45, 130 50 Q 125 48, 120 45 Z" fill="url(#whaleGradient1)" stroke="#4C1D95" stroke-width="1"/>
+                <!-- Pectoral fin -->
+                <path d="M 80 75 Q 75 85, 85 90 Q 95 85, 90 75 Q 85 73, 80 75 Z" fill="url(#whaleGradient1)" stroke="#4C1D95" stroke-width="1"/>
+                <!-- Eye -->
+                <circle cx="60" cy="58" r="4" fill="white" stroke="#4C1D95" stroke-width="1"/>
+                <circle cx="62" cy="56" r="2" fill="black"/>
+                <circle cx="63" cy="55" r="0.8" fill="white"/>
+                <!-- Gill slits -->
+                <path d="M 70 65 Q 75 68, 70 70" stroke="#4C1D95" stroke-width="1.5" fill="none"/>
+                <path d="M 75 67 Q 80 70, 75 72" stroke="#4C1D95" stroke-width="1.5" fill="none"/>
+                <path d="M 80 69 Q 85 72, 80 74" stroke="#4C1D95" stroke-width="1.5" fill="none"/>
+                <!-- Spots -->
+                <circle cx="100" cy="55" r="5" fill="#EC4899" opacity="0.7"/>
+                <circle cx="140" cy="65" r="4" fill="#F59E0B" opacity="0.8"/>
+                <circle cx="90" cy="70" r="3" fill="#EF4444" opacity="0.9"/>
+                <circle cx="160" cy="70" r="4" fill="#EC4899" opacity="0.6"/>
+                <circle cx="110" cy="75" r="3" fill="#F59E0B" opacity="0.7"/>
+                <circle cx="75" cy="60" r="2" fill="#10B981" opacity="0.8"/>
+            </svg>
+        </div>
+        
+        
+        <div class="whale whale-2">
+            <svg width="290" height="170" viewBox="0 0 200 120">
+                <defs>
+                    <linearGradient id="whaleGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#7C3AED;stop-opacity:1" />
+                        <stop offset="30%" style="stop-color:#8B5CF6;stop-opacity:1" />
+                        <stop offset="70%" style="stop-color:#A855F7;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#C084FC;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="whaleBelly2" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#DDD6FE;stop-opacity:0.8" />
+                        <stop offset="100%" style="stop-color:#F3E8FF;stop-opacity:0.6" />
+                    </linearGradient>
+                </defs>
+                <!-- Main body -->
+                <path d="M 25 60 Q 35 35, 70 38 Q 120 42, 160 52 Q 170 57, 165 70 Q 155 82, 110 78 Q 70 75, 35 72 Q 20 68, 25 60 Z" fill="url(#whaleGradient2)" stroke="#5B21B6" stroke-width="1"/>
+                <!-- Belly -->
+                <path d="M 45 62 Q 70 66, 110 68 Q 135 70, 150 66 Q 145 75, 110 75 Q 70 73, 50 68 Q 40 65, 45 62 Z" fill="url(#whaleBelly2)"/>
+                <!-- Tail fin -->
+                <path d="M 160 52 Q 175 40, 185 48 Q 182 57, 170 62 Q 165 70, 172 74 Q 185 78, 182 83 Q 170 79, 165 70" fill="url(#whaleGradient2)" stroke="#5B21B6" stroke-width="1"/>
+                <!-- Dorsal fin -->
+                <path d="M 105 38 Q 110 30, 118 32 Q 122 38, 115 42 Q 110 40, 105 38 Z" fill="url(#whaleGradient2)" stroke="#5B21B6" stroke-width="1"/>
+                <!-- Pectoral fin -->
+                <path d="M 70 65 Q 66 73, 74 77 Q 82 73, 78 65 Q 74 63, 70 65 Z" fill="url(#whaleGradient2)" stroke="#5B21B6" stroke-width="1"/>
+                <!-- Eye -->
+                <circle cx="52" cy="50" r="3.5" fill="white" stroke="#5B21B6" stroke-width="1"/>
+                <circle cx="54" cy="48" r="1.8" fill="black"/>
+                <circle cx="54.5" cy="47" r="0.6" fill="white"/>
+                <!-- Gill slits -->
+                <path d="M 62 58 Q 66 60, 62 62" stroke="#5B21B6" stroke-width="1.2" fill="none"/>
+                <path d="M 67 60 Q 71 62, 67 64" stroke="#5B21B6" stroke-width="1.2" fill="none"/>
+                <path d="M 72 62 Q 76 64, 72 66" stroke="#5B21B6" stroke-width="1.2" fill="none"/>
+                <!-- Spots -->
+                <circle cx="85" cy="48" r="4" fill="#F97316" opacity="0.8"/>
+                <circle cx="120" cy="58" r="3" fill="#EC4899" opacity="0.7"/>
+                <circle cx="95" cy="65" r="2.5" fill="#EF4444" opacity="0.9"/>
+                <circle cx="130" cy="65" r="3" fill="#F59E0B" opacity="0.8"/>
+                <circle cx="75" cy="55" r="2" fill="#10B981" opacity="0.7"/>
+            </svg>
+        </div>
+        
+        
+        <div class="whale whale-3">
+            <svg width="360" height="240" viewBox="0 0 240 160">
+                <defs>
+                    <linearGradient id="whaleGradient3" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#5B21B6;stop-opacity:1" />
+                        <stop offset="25%" style="stop-color:#6B46C1;stop-opacity:1" />
+                        <stop offset="60%" style="stop-color:#7C3AED;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#9333EA;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="whaleBelly3" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#C4B5FD;stop-opacity:0.9" />
+                        <stop offset="100%" style="stop-color:#E9D5FF;stop-opacity:0.7" />
+                    </linearGradient>
+                </defs>
+                <!-- Main body -->
+                <path d="M 35 80 Q 45 45, 85 50 Q 150 55, 200 65 Q 215 72, 210 88 Q 195 105, 135 100 Q 85 95, 45 92 Q 28 88, 35 80 Z" fill="url(#whaleGradient3)" stroke="#4C1D95" stroke-width="1.5"/>
+                <!-- Belly -->
+                <path d="M 60 82 Q 90 87, 135 90 Q 170 92, 190 87 Q 185 97, 135 97 Q 90 95, 65 90 Q 55 87, 60 82 Z" fill="url(#whaleBelly3)"/>
+                <!-- Tail fin -->
+                <path d="M 200 65 Q 220 48, 235 58 Q 230 70, 215 76 Q 210 88, 220 93 Q 235 98, 230 105 Q 215 100, 210 88" fill="url(#whaleGradient3)" stroke="#4C1D95" stroke-width="1.5"/>
+                <!-- Dorsal fin -->
+                <path d="M 135 50 Q 142 38, 152 42 Q 158 50, 148 56 Q 142 54, 135 50 Z" fill="url(#whaleGradient3)" stroke="#4C1D95" stroke-width="1.5"/>
+                <!-- Pectoral fin -->
+                <path d="M 85 85 Q 80 97, 90 102 Q 102 97, 96 85 Q 91 82, 85 85 Z" fill="url(#whaleGradient3)" stroke="#4C1D95" stroke-width="1.5"/>
+                <!-- Eye -->
+                <circle cx="68" cy="68" r="5" fill="white" stroke="#4C1D95" stroke-width="1.5"/>
+                <circle cx="71" cy="65" r="2.5" fill="black"/>
+                <circle cx="72" cy="63" r="1" fill="white"/>
+                <!-- Gill slits -->
+                <path d="M 78 78 Q 84 81, 78 84" stroke="#4C1D95" stroke-width="2" fill="none"/>
+                <path d="M 85 80 Q 91 83, 85 86" stroke="#4C1D95" stroke-width="2" fill="none"/>
+                <path d="M 92 82 Q 98 85, 92 88" stroke="#4C1D95" stroke-width="2" fill="none"/>
+                <path d="M 99 84 Q 105 87, 99 90" stroke="#4C1D95" stroke-width="2" fill="none"/>
+                <!-- Spots -->
+                <circle cx="120" cy="65" r="6" fill="#EC4899" opacity="0.8"/>
+                <circle cx="160" cy="78" r="5" fill="#F59E0B" opacity="0.9"/>
+                <circle cx="105" cy="78" r="4" fill="#EF4444" opacity="0.9"/>
+                <circle cx="175" cy="85" r="5" fill="#EC4899" opacity="0.7"/>
+                <circle cx="130" cy="88" r="4" fill="#F59E0B" opacity="0.8"/>
+                <circle cx="90" cy="70" r="3" fill="#10B981" opacity="0.8"/>
+                <circle cx="110" cy="95" r="3.5" fill="#3B82F6" opacity="0.7"/>
+            </svg>
+        </div>
+        
+        <!-- Person silhouette -->
+        <div class="person">
+            <svg width="60" height="80" viewBox="0 0 60 80">
+                <path d="M30 10 C35 10, 35 20, 30 20 C25 20, 25 10, 30 10 Z" fill="#1F2937"/>
+                <rect x="25" y="20" width="10" height="30" fill="#1F2937"/>
+                <rect x="20" y="25" width="8" height="20" fill="#1F2937"/>
+                <rect x="32" y="25" width="8" height="20" fill="#1F2937"/>
+                <rect x="22" y="50" width="6" height="25" fill="#1F2937"/>
+                <rect x="32" y="50" width="6" height="25" fill="#1F2937"/>
+                <circle cx="28" cy="75" r="3" fill="#1F2937"/>
+                <circle cx="32" cy="75" r="3" fill="#1F2937"/>
+            </svg>
+        </div>
+        
+        <!-- Fish container -->
+        <div class="fish-container" id="fishContainer"></div>
+        
+        <!-- Bubbles -->
+        <div class="bubbles" id="bubbles"></div>
+        
+        <div class="message">Move your cursor to guide the massive school of 120 fish through the cosmic ocean - watch them swarm actively!</div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script>
+        // Fish school system
+        class FishSchool {
+            constructor() {
+                this.fish = [];
+                this.mouseX = window.innerWidth / 2;
+                this.mouseY = window.innerHeight / 2;
+                this.container = document.getElementById('fishContainer');
+                this.cursorLight = document.querySelector('.cursor-light');
+                
+                this.initFish();
+                this.bindEvents();
+                this.animate();
+            }
+            
+            initFish() {
+                const fishCount = 120;
+                const colors = ['#10B981', '#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4', '#8B5A2B', '#DB2777', '#7C3AED', '#059669', '#DC2626', '#14B8A6', '#F97316', '#A855F7', '#E11D48'];
+                
+                for (let i = 0; i < fishCount; i++) {
+                    const fish = {
+                        id: i,
+                        x: Math.random() * window.innerWidth,
+                        y: Math.random() * window.innerHeight,
+                        vx: (Math.random() - 0.5) * 2,
+                        vy: (Math.random() - 0.5) * 2,
+                        size: Math.random() * 16 + 4,
+                        color: colors[Math.floor(Math.random() * colors.length)],
+                        angle: 0,
+                        phase: Math.random() * Math.PI * 2,
+                        speed: Math.random() * 1.2 + 0.8,
+                        element: null,
+                        schoolGroup: Math.floor(i / 20), // Create smaller sub-groups
+                        individualPhase: Math.random() * Math.PI * 4,
+                        agility: Math.random() * 0.5 + 0.7, // Individual agility factor
+                        energy: Math.random() * 0.3 + 0.8 // Energy level for movement
+                    };
+                    
+                    // Create fish SVG element
+                    fish.element = this.createFishElement(fish);
+                    this.container.appendChild(fish.element);
+                    this.fish.push(fish);
+                }
+            }
+            
+            createFishElement(fish) {
+                const div = document.createElement('div');
+                div.className = 'small-fish';
+                div.innerHTML = `
+                    <svg width="${fish.size * 2.2}" height="${fish.size * 1.1}" viewBox="0 0 44 22">
+                        <defs>
+                            <linearGradient id="fishGrad${fish.id}" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:${fish.color};stop-opacity:0.9" />
+                                <stop offset="50%" style="stop-color:${fish.color};stop-opacity:0.7" />
+                                <stop offset="100%" style="stop-color:${fish.color};stop-opacity:0.5" />
+                            </linearGradient>
+                        </defs>
+                        <ellipse cx="28" cy="11" rx="14" ry="7" fill="url(#fishGrad${fish.id})"/>
+                        <path d="M 8 11 L 2 7 L 2 15 Z" fill="url(#fishGrad${fish.id})"/>
+                        <ellipse cx="35" cy="9" rx="2" ry="3" fill="rgba(255,255,255,0.8)"/>
+                        <circle cx="35" cy="9" r="1.2" fill="black"/>
+                        <circle cx="35.5" cy="8.5" r="0.4" fill="white"/>
+                        <!-- Small dorsal fin -->
+                        <path d="M 25 4 Q 28 2, 30 4 Q 28 6, 25 4" fill="url(#fishGrad${fish.id})" opacity="0.8"/>
+                    </svg>
+                `;
+                return div;
+            }
+            
+            bindEvents() {
+                document.addEventListener('mousemove', (e) => {
+                    this.mouseX = e.clientX;
+                    this.mouseY = e.clientY;
+                    
+                    // Update cursor light position
+                    this.cursorLight.style.left = e.clientX + 'px';
+                    this.cursorLight.style.top = e.clientY + 'px';
+                });
+                
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    this.mouseX = window.innerWidth / 2;
+                    this.mouseY = window.innerHeight / 2;
+                });
+            }
+            
+            updateFish() {
+                this.fish.forEach((fish, index) => {
+                    // Calculate distance to mouse
+                    const dx = this.mouseX - fish.x;
+                    const dy = this.mouseY - fish.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // Much stronger attraction to mouse with faster response
+                    const attractionStrength = 0.008 * fish.agility;
+                    const maxDistance = 400;
+                    const influence = Math.max(0, 1 - distance / maxDistance);
+                    const urgency = Math.max(0.3, 1 - distance / 200); // Close fish move more urgently
+                    
+                    fish.vx += dx * attractionStrength * influence * fish.speed * urgency;
+                    fish.vy += dy * attractionStrength * influence * fish.speed * urgency;
+                    
+                    // Enhanced flocking behavior with faster reactions
+                    let separationX = 0;
+                    let separationY = 0;
+                    let cohesionX = 0;
+                    let cohesionY = 0;
+                    let alignmentX = 0;
+                    let alignmentY = 0;
+                    let nearbyCount = 0;
+                    let schoolCount = 0;
+                    
+                    this.fish.forEach((otherFish, otherIndex) => {
+                        if (index !== otherIndex) {
+                            const otherDx = fish.x - otherFish.x;
+                            const otherDy = fish.y - otherFish.y;
+                            const otherDistance = Math.sqrt(otherDx * otherDx + otherDy * otherDy);
+                            
+                            // Stronger separation (avoid crowding)
+                            if (otherDistance < 35 && otherDistance > 0) {
+                                const separationForce = 1 / otherDistance;
+                                separationX += (otherDx / otherDistance) * separationForce;
+                                separationY += (otherDy / otherDistance) * separationForce;
+                                nearbyCount++;
+                            }
+                            
+                            // Cohesion and alignment for same school group
+                            if (fish.schoolGroup === otherFish.schoolGroup && otherDistance < 80 && otherDistance > 0) {
+                                cohesionX += otherFish.x;
+                                cohesionY += otherFish.y;
+                                alignmentX += otherFish.vx;
+                                alignmentY += otherFish.vy;
+                                schoolCount++;
+                            }
+                        }
+                    });
+                    
+                    // Apply stronger separation
+                    if (nearbyCount > 0) {
+                        fish.vx += (separationX / nearbyCount) * 0.15 * fish.agility;
+                        fish.vy += (separationY / nearbyCount) * 0.15 * fish.agility;
+                    }
+                    
+                    // Apply cohesion (move toward center of school group)
+                    if (schoolCount > 0) {
+                        cohesionX = cohesionX / schoolCount - fish.x;
+                        cohesionY = cohesionY / schoolCount - fish.y;
+                        fish.vx += cohesionX * 0.003 * fish.energy;
+                        fish.vy += cohesionY * 0.003 * fish.energy;
+                        
+                        // Apply alignment (match velocity of school group)
+                        alignmentX /= schoolCount;
+                        alignmentY /= schoolCount;
+                        fish.vx += (alignmentX - fish.vx) * 0.05 * fish.agility;
+                        fish.vy += (alignmentY - fish.vy) * 0.05 * fish.agility;
+                    }
+                    
+                    // More active individual swimming motion
+                    fish.phase += 0.15 + (fish.speed * 0.05);
+                    fish.individualPhase += 0.08 + (fish.energy * 0.02);
+                    fish.vx += Math.sin(fish.phase + fish.individualPhase) * 0.004 * fish.energy;
+                    fish.vy += Math.cos(fish.phase * 0.8 + fish.individualPhase) * 0.004 * fish.energy;
+                    
+                    // Add more dynamic turbulence for natural movement
+                    fish.vx += (Math.random() - 0.5) * 0.003 * fish.agility;
+                    fish.vy += (Math.random() - 0.5) * 0.003 * fish.agility;
+                    
+                    // Less drag for faster movement
+                    fish.vx *= 0.88;
+                    fish.vy *= 0.88;
+                    
+                    // Higher velocity limits for faster movement
+                    const maxSpeed = 4.5 + (fish.size / 10) + (fish.energy * 2);
+                    const speed = Math.sqrt(fish.vx * fish.vx + fish.vy * fish.vy);
+                    if (speed > maxSpeed) {
+                        fish.vx = (fish.vx / speed) * maxSpeed;
+                        fish.vy = (fish.vy / speed) * maxSpeed;
+                    }
+                    
+                    // Boost speed when near cursor
+                    if (distance < 150) {
+                        const speedBoost = 1 + (1 - distance / 150) * 0.5;
+                        fish.vx *= speedBoost;
+                        fish.vy *= speedBoost;
+                    }
+                    
+                    // Update position
+                    fish.x += fish.vx;
+                    fish.y += fish.vy;
+                    
+                    // Wrap around screen edges with some margin
+                    const margin = 60;
+                    if (fish.x < -margin) fish.x = window.innerWidth + margin;
+                    if (fish.x > window.innerWidth + margin) fish.x = -margin;
+                    if (fish.y < -margin) fish.y = window.innerHeight + margin;
+                    if (fish.y > window.innerHeight + margin) fish.y = -margin;
+                    
+                    // Calculate rotation angle based on velocity
+                    if (Math.abs(fish.vx) > 0.05 || Math.abs(fish.vy) > 0.05) {
+                        fish.angle = Math.atan2(fish.vy, fish.vx) * (180 / Math.PI);
+                    }
+                    
+                    // More dynamic scaling based on speed
+                    const speedScale = Math.min(1.3, 0.8 + speed / 8);
+                    const pulseScale = 1 + Math.sin(fish.phase * 2) * 0.08;
+                    
+                    // Update visual position and rotation
+                    fish.element.style.left = fish.x + 'px';
+                    fish.element.style.top = fish.y + 'px';
+                    fish.element.style.transform = `rotate(${fish.angle}deg) scale(${speedScale * pulseScale})`;
+                    
+                    // More dynamic opacity variation
+                    const baseOpacity = 0.75 + (fish.size / 40);
+                    const distanceOpacity = Math.max(0.4, 1 - distance / 600);
+                    const speedOpacity = Math.min(1, 0.6 + speed / 10);
+                    const finalOpacity = Math.min(baseOpacity * distanceOpacity * speedOpacity, 0.95);
+                    fish.element.style.opacity = finalOpacity;
+                });
+            }
+            
+            animate() {
+                this.updateFish();
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+        
+        // Bubble system
+        function createBubble() {
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            
+            const size = Math.random() * 20 + 5;
+            const left = Math.random() * window.innerWidth;
+            const duration = Math.random() * 10 + 8;
+            
+            bubble.style.width = size + 'px';
+            bubble.style.height = size + 'px';
+            bubble.style.left = left + 'px';
+            bubble.style.animationDuration = duration + 's';
+            
+            document.getElementById('bubbles').appendChild(bubble);
+            
+            setTimeout(() => {
+                if (bubble.parentNode) {
+                    bubble.parentNode.removeChild(bubble);
+                }
+            }, duration * 1000);
+        }
+        
+        // Whale interaction
+        function initWhaleInteraction() {
+            const whales = document.querySelectorAll('.whale');
+            
+            document.addEventListener('mousemove', (e) => {
+                const mouseX = e.clientX / window.innerWidth;
+                const mouseY = e.clientY / window.innerHeight;
+                
+                whales.forEach((whale, index) => {
+                    const moveX = (mouseX - 0.5) * (10 + index * 5);
+                    const moveY = (mouseY - 0.5) * (5 + index * 3);
+                    
+                    whale.style.transform = `translate(${moveX}px, ${moveY}px)`;
+                });
+            });
+        }
+        
+        // Initialize everything
+        document.addEventListener('DOMContentLoaded', () => {
+            new FishSchool();
+            initWhaleInteraction();
+            
+            // Create bubbles periodically
+            setInterval(createBubble, 2000);
+            
+            // Create initial bubbles
+            for (let i = 0; i < 5; i++) {
+                setTimeout(createBubble, i * 400);
+            }
+        });
+    </script>
+</body>
+</html>
