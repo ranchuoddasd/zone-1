@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VRF Cloud Connectivity Dashboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      h1 {
+        text-align: center;
+      }
+      .container {
+        max-width: 1200px;
+        margin: auto;
+        background-color: #fff;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .form-section {
+        margin-bottom: 40px;
+      }
+      label {
+        display: block;
+        margin: 8px 0 4px;
+      }
+      input, select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 12px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      button {
+        padding: 10px 16px;
+        background-color: #007bff;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 20px;
+      }
+      th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      .tabs {
+        display: flex;
+        margin-bottom: 20px;
+      }
+      .tab {
+        padding: 10px 20px;
+        border: 1px solid #ccc;
+        border-bottom: none;
+        cursor: pointer;
+        background-color: #f2f2f2;
+      }
+      .tab.active {
+        background-color: #fff;
+        border-top: 2px solid #007bff;
+        font-weight: bold;
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+    </style>
+    <!-- Import SheetJS library from CDN for Excel parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>VRF Cloud Connectivity Dashboard</h1>
+
+      <!-- Upload Excel section -->
+      <div class="form-section">
+        <h2>Import Connections from Excel</h2>
+        <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" />
+        <button onclick="importExcel()">Import</button>
+      </div>
+
+      <!-- Tabs for provider-specific forms -->
+      <div class="tabs">
+        <div class="tab active" data-target="awsForm">AWS DXC</div>
+        <div class="tab" data-target="azureForm">Azure ExpressRoute</div>
+        <div class="tab" data-target="gcpForm">GCP Interconnect</div>
+      </div>
+
+      <!-- AWS Form -->
+      <div id="awsForm" class="tab-content active">
+        <h2>Add AWS Direct Connect VIF</h2>
+        <label for="awsVrfId">VRF ID</label>
+        <input type="text" id="awsVrfId" placeholder="VRF-Production-1" />
+        <label for="awsConnId">Connection ID (dxcon-…)</label>
+        <input type="text" id="awsConnId" placeholder="dxcon-xxxxxxxx" />
+        <label for="awsVifType">VIF Type</label>
+        <select id="awsVifType">
+          <option value="private">Private</option>
+          <option value="public">Public</option>
+          <option value="transit">Transit</option>
+        </select>
+        <label for="awsVifId">VIF ID</label>
+        <input type="text" id="awsVifId" placeholder="dxvif-xxxxxxxx" />
+        <label for="awsRegion">Region</label>
+        <input type="text" id="awsRegion" placeholder="ap-south-1" />
+        <label for="awsAz">Availability Zone</label>
+        <input type="text" id="awsAz" placeholder="ap-south-1a" />
+        <label for="awsVlan">VLAN ID</label>
+        <input type="number" id="awsVlan" placeholder="101" />
+        <label for="awsLocalAsn">Local ASN</label>
+        <input type="number" id="awsLocalAsn" placeholder="65000" />
+        <label for="awsPeerIp">AWS Peer IP</label>
+        <input type="text" id="awsPeerIp" placeholder="169.254.x.x" />
+        <label for="awsLocalIp">Local BGP IP</label>
+        <input type="text" id="awsLocalIp" placeholder="169.254.x.x" />
+        <label for="awsPrimaryRouter">Primary Router & Interface</label>
+        <input type="text" id="awsPrimaryRouter" placeholder="Router1 - Gi0/0/0" />
+        <label for="awsSecondaryRouter">Secondary Router & Interface</label>
+        <input type="text" id="awsSecondaryRouter" placeholder="Router2 - Gi0/0/0" />
+        <button onclick="addAwsConnection()">Add AWS Connection</button>
+      </div>
+
+      <!-- Azure Form -->
+      <div id="azureForm" class="tab-content">
+        <h2>Add Azure ExpressRoute Peering</h2>
+        <label for="azVrfId">VRF ID</label>
+        <input type="text" id="azVrfId" />
+        <label for="azCircuitId">Circuit ID</label>
+        <input type="text" id="azCircuitId" placeholder="xxxx" />
+        <label for="azPeeringType">Peering Type</label>
+        <select id="azPeeringType">
+          <option value="private">Private</option>
+          <option value="microsoft">Microsoft</option>
+          <option value="public">Public</option>
+        </select>
+        <label for="azRegion">Region</label>
+        <input type="text" id="azRegion" placeholder="centralus" />
+        <label for="azAz">Availability Zone</label>
+        <input type="text" id="azAz" placeholder="centralus-1" />
+        <label for="azVlan">VLAN ID</label>
+        <input type="number" id="azVlan" />
+        <label for="azPrimarySubnet">Primary BGP Subnet</label>
+        <input type="text" id="azPrimarySubnet" />
+        <label for="azSecondarySubnet">Secondary BGP Subnet</label>
+        <input type="text" id="azSecondarySubnet" />
+        <label for="azLocalAsn">Local ASN</label>
+        <input type="number" id="azLocalAsn" />
+        <label for="azPrimaryRouter">Primary Router & Interface</label>
+        <input type="text" id="azPrimaryRouter" />
+        <label for="azSecondaryRouter">Secondary Router & Interface</label>
+        <input type="text" id="azSecondaryRouter" />
+        <button onclick="addAzureConnection()">Add Azure Connection</button>
+      </div>
+
+      <!-- GCP Form -->
+      <div id="gcpForm" class="tab-content">
+        <h2>Add GCP Dedicated Interconnect Attachment</h2>
+        <label for="gcpVrfId">VRF ID</label>
+        <input type="text" id="gcpVrfId" />
+        <label for="gcpInterconnectId">Interconnect ID</label>
+        <input type="text" id="gcpInterconnectId" />
+        <label for="gcpRegion">Region</label>
+        <input type="text" id="gcpRegion" placeholder="asia-south1" />
+        <label for="gcpZone">Zone</label>
+        <input type="text" id="gcpZone" placeholder="asia-south1-a" />
+        <label for="gcpAttachmentName">Attachment Name</label>
+        <input type="text" id="gcpAttachmentName" />
+        <label for="gcpVlan">VLAN ID</label>
+        <input type="number" id="gcpVlan" />
+        <label for="gcpVpc">VPC Network</label>
+        <input type="text" id="gcpVpc" />
+        <label for="gcpLocalAsn">Local ASN</label>
+        <input type="number" id="gcpLocalAsn" />
+        <label for="gcpPeerIp">Google Peer IP</label>
+        <input type="text" id="gcpPeerIp" />
+        <label for="gcpLocalIp">Local BGP IP</label>
+        <input type="text" id="gcpLocalIp" />
+        <label for="gcpPrimaryRouter">Primary Router & Interface</label>
+        <input type="text" id="gcpPrimaryRouter" />
+        <label for="gcpSecondaryRouter">Secondary Router & Interface</label>
+        <input type="text" id="gcpSecondaryRouter" />
+        <button onclick="addGcpConnection()">Add GCP Connection</button>
+      </div>
+
+      <!-- Data table -->
+      <h2>Existing Connections</h2>
+      <table id="connectionsTable">
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>VRF ID</th>
+            <th>Connection ID</th>
+            <th>Region</th>
+            <th>Availability Zone</th>
+            <th>VLAN</th>
+            <th>Primary Router</th>
+            <th>Secondary Router</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <script src="dashboard.js"></script>
+  </body>
+</html>
