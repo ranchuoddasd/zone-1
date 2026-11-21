@@ -36,7 +36,7 @@ The repository currently contains experimental scripts and standalone prototypes
 | `path` | Network path analysis CLI experiment |
 | `three-csp` | Cloud connectivity data collection prototype |
 
-Other files represent additional experiments and are catalogued progressively. Filenames and implementations may change as prototypes are reviewed and consolidated.
+See [Prototype Catalog](docs/prototype-catalog.md) for reviewed variants and consolidation decisions. A confirmed exact duplicate was consolidated into `prototypes/config-impact/gro_visualization.py`; other related variants remain separate until behavior is compared.
 
 ## Technology Areas
 
