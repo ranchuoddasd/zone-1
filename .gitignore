@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated artifacts
+*.log
